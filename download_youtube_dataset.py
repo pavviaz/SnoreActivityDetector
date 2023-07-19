@@ -38,7 +38,7 @@ def get_intervals(from_timestamp, to_timestamp, duration):
     
     res_label = [[SNORE_TAG, [from_timestamp, to_timestamp]]]
     if from_timestamp:
-        res_label.append([NO_SNORE_TAG, [0, from_timestamp]])
+        res_label.append([NO_SNORE_TAG, [0.0, from_timestamp]])
     if to_timestamp != duration:
         res_label.append([NO_SNORE_TAG, [to_timestamp, duration]])
     
@@ -47,6 +47,7 @@ def get_intervals(from_timestamp, to_timestamp, duration):
 
 def save_audio_from_vid(yt_vid_id, from_timestamp, to_timestamp):
     try:
+        audio_path = None
         data_path = os.path.join(DATASET_DIR, AUDIOS_DIR)
 
         ydl_opts = {
@@ -74,7 +75,6 @@ def save_audio_from_vid(yt_vid_id, from_timestamp, to_timestamp):
                         [f"{os.path.join(data_path, yt_vid_id)}.wav"]
 
         subprocess.run(ffmpeg_params, timeout=5, capture_output=True)
-        os.remove(audio_path)
 
         lock.acquire()
         label_stream = open(os.path.join(DATASET_DIR, TMP_LABELS), "a+")
@@ -92,6 +92,10 @@ def save_audio_from_vid(yt_vid_id, from_timestamp, to_timestamp):
         error_stream.write(f"Error {exc} with {yt_vid_id} video\n")
         error_stream.close()
         lock.release()
+    
+    finally:
+        if audio_path and os.path.exists(audio_path):
+            os.remove(audio_path)
 
 
 def preprocess_and_save(dct, start, end):
