@@ -115,7 +115,7 @@ def get_dataset_csv():
     data = map(lambda x: x[:x.find(', "')], data)
     data = map(lambda x: x.replace(" ", "").split(","), data)
     data = map(lambda x: [x[0], int(x[1].split(".")[0]), int(x[2].split(".")[0])], data)
-    return list(data)[:5]
+    return list(data)
 
 
 def assemble_label_file():
