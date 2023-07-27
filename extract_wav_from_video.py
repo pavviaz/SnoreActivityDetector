@@ -4,6 +4,7 @@ from tqdm import tqdm
 import os
 from glob import glob
 import itertools
+from utils.multiprocess_funcs import compute_threads_work
 
 
 DATA_PATH = "E:/"
@@ -11,21 +12,6 @@ TARGET_PATH = "G:/"
 SR = "16000"
 CODEC = "pcm_s16le"
 THREADS_AMOUNT = 1
-
-
-def compute_threads_work(length, download_threads):
-    """Yields split data for threads
-    Args:
-       length: number of captions in dataset
-       download_threads: number of downloading threads
-    Returns:
-        (from, to) tuple
-    """
-    div, mod = divmod(length, download_threads)
-    for _ in range(download_threads):
-        yield (t := length - (div + bool(mod)), length)
-        length = t
-        mod -= 1 if mod else 0
 
 
 def save_audio(video_path, out_path):

@@ -74,3 +74,14 @@ class MelSpec_FE(BaseFeatureExtractor):
 class Raw_FE(BaseFeatureExtractor):
     def __call__(self, audio, *args: Any, **kwds: Any) -> Any:
         return audio
+
+
+if __name__ == "__main__":
+    import torch
+    audio = torch.randn((1, 32000))
+    melspec = MelSpec_FE(win_length=160, n_fft=160, hop_length=480, n_mels=40)
+    a = melspec(audio)
+
+    mfcc = MFCC_FE(win_length=160, n_fft=160, hop_length=480, n_mels=40)
+    b = melspec(audio)
+    print()

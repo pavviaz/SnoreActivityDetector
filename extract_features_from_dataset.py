@@ -8,14 +8,15 @@ from tqdm import tqdm
 from feature_extractors import MelSpec_FE, MFCC_FE, Raw_FE 
 from random import shuffle
 from os.path import join
+import shutil
 
 
 LABEL_FILE = "labels.json"
 AUDIO_FOLDER = "audios"
 
 WIN_LEN = 10  # ms
-HOP_LEN = 10  # ms
-MEL_SIZE = 320  # ms
+HOP_LEN = 30  # ms
+MEL_SIZE = 2000  # ms
 
 FEATURE_TYPES = {"mel": MelSpec_FE,
                  "mfcc": MFCC_FE,
@@ -141,6 +142,19 @@ class FeatureExtractor:
             f_idx += self.shuffle_hop
             t_idx += self.shuffle_hop
             print("-----------------------")
+
+    def train_validation_split(self):
+        train_dir = os.path.join(self.features_dir, self.train_folder)
+        val_dir = os.path.join(self.features_dir, self.val_folder)
+        os.makedirs(train_dir, exist_ok=True)
+        os.makedirs(val_dir, exist_ok=True)
+
+        files = map(lambda x: os.path.join(self.features_dir, x), os.listdir(self.features_dir))
+        files = list(filter(os.path.isfile, files))
+        train_ratio = int(len(files) * self.train_val_split / 100)
+
+        np.random.shuffle(files)
+        [shutil.move(el, train_dir) if idx < train_ratio else shutil.move(el, val_dir) for idx, el in enumerate(files)]
         
     def extract_features(self):
         if not os.path.exists(self.dataset_path):
@@ -175,7 +189,9 @@ class FeatureExtractor:
 
         self.transform = FEATURE_TYPES[self.feature_type](sample_rate=self.sample_rate,
                                                           win_length=self.win_len,
-                                                          hop_length=self.hop_len)
+                                                          n_fft=self.win_len,
+                                                          hop_length=self.hop_len,
+                                                          n_mels=40)
         
         multiprocessing.set_start_method('spawn')
         threads = [multiprocessing.Process(target=self.file_load_and_proceed, args=(dataset, arg[0], arg[1])) for arg in
@@ -187,6 +203,8 @@ class FeatureExtractor:
                 
         self.part_batch_combiner()
         self.shuffle_batches()
+        if 0 < self.train_val_split < 100:
+            self.train_validation_split()
 
         print("Extraction successfully completed!")
 
@@ -294,6 +312,29 @@ if __name__ == "__main__":
               '{batch}_{extracting-process-id}_{index}', for example 'batch_34604_0.npy'",
         type=str,
         required=False
+    )
+
+    parser.add_argument(
+        "--train-val-split",
+        help="Splits data to train and validation folders in specified ratio. \
+              Given value (in percent) of data will be train set and the rest is for validation as well. \
+              Works only if 0 < specified value < 100",
+        type=int,
+        default=80
+    )
+
+    parser.add_argument(
+        "--train-folder",
+        help="Name of folder for train set",
+        type=str,
+        default="train"
+    )
+
+    parser.add_argument(
+        "--val-folder",
+        help="Name of folder for validation set",
+        type=str,
+        default="validation"
     )
 
     args = parser.parse_args()

@@ -162,3 +162,5 @@ cython_debug/
 # Dataset
 data/
 data2/
+data_home/
+trained_models/
