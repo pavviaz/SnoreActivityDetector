@@ -11,6 +11,8 @@ from tqdm import tqdm
 from utils.checkpointing import Checkpointing
 from utils.logger_init import log_init
 from model_loader import ModelLoader
+from utils.conf_matrix import ConfusionMatrix
+from matplotlib import pyplot as plt
 
 
 DIR_PATH = os.path.dirname(os.path.realpath(__file__))
@@ -148,7 +150,10 @@ class Training:
 
         criterion = nn.CrossEntropyLoss()
             
-        model_manager = ModelLoader(feature_type=self.params.features_type, model_type=self.params.model_type, device=self.device)
+        model_manager = ModelLoader(feature_type=self.params.features_type, 
+                                    model_type=self.params.model_type, 
+                                    out_classes=self.params.out_classes,
+                                    device=self.device)
         
         # optimizer = torch.optim.Adam(model.model.parameters())
         optimizer = torch.optim.AdamW(model_manager.model.parameters(), lr=0.001, amsgrad=True)
@@ -202,9 +207,10 @@ class Training:
                     )
             # storing the epoch end loss value to plot later
             # loss_plot.append(total_loss / num_steps)
-            self.logger.info(f"Epoch mean loss = {epoch_loss / batch} --- Epoch mean accuracy = {epoch_accuracy / batch} --- Epoch mean recall = {epoch_re / batch} --- Epoch mean precision = {epoch_pr / batch}")
+            self.logger.info(f"Train epoch mean loss = {epoch_loss / batch} --- Epoch mean accuracy = {epoch_accuracy / batch} --- Epoch mean recall = {epoch_re / batch} --- Epoch mean precision = {epoch_pr / batch}")
 
             model_manager.model.eval()
+            confmat = ConfusionMatrix(num_classes=self.params.out_classes)
             with torch.no_grad():
                 for (batch, (img_tensor, target)) in tqdm(enumerate(val_dataset)):
                     img_tensor, target = img_tensor.to(self.device), target.type(torch.int64).to(self.device)
@@ -212,10 +218,12 @@ class Training:
                     prediction = model_manager.predict(img_tensor)
                     
                     loss = criterion(prediction, target)
-                
-                    accuracy = self.accuracy(torch.argmax(prediction, dim=-1), target)
-                    recall = self.recall(torch.argmax(prediction, dim=-1), target)
-                    precision = self.precision(torch.argmax(prediction, dim=-1), target)
+
+                    prediction = torch.argmax(prediction, dim=-1)
+                    confmat.update(target.cpu().numpy(), prediction.cpu().numpy())
+                    accuracy = self.accuracy(prediction, target)
+                    recall = self.recall(prediction, target)
+                    precision = self.precision(prediction, target)
                 
                     val_epoch_loss += loss.item()
                     val_epoch_accuracy += accuracy.item()
@@ -229,8 +237,12 @@ class Training:
                     # storing the epoch end loss value to plot later
                     # loss_plot.append(total_loss / num_steps)
             
-            self.logger.info(f"Epoch mean loss = {val_epoch_loss / batch} --- Epoch mean accuracy = {val_epoch_accuracy / batch} --- Epoch mean recall = {val_epoch_re / batch} --- Epoch mean precision = {val_epoch_pr / batch}")
+            self.logger.info(f"Val epoch mean loss = {val_epoch_loss / batch} --- Epoch mean accuracy = {val_epoch_accuracy / batch} --- Epoch mean recall = {val_epoch_re / batch} --- Epoch mean precision = {val_epoch_pr / batch}")
 
+            if epoch + 1 == self.params.epochs:
+                disp = confmat.plot()
+                disp.plot(values_format='')
+                plt.show()
 
             ckpt.save()
             self.logger.info(f"Epoch {epoch} checkpoint saved!")
@@ -246,12 +258,13 @@ class SnoreActivityDetectorLoader:
     dataset_path = "D:/SnoreFeatures"
     train_folder = "train"
     val_folder = "validation"
+    out_classes = 2
     features_type = "mfcc"
     model_type = "CB"
     sample_rate = 16000
     stride = 128
     BATCH_SIZE = 256
-    EPOCHS = 100
+    EPOCHS = 20
 
     def __init__(self, model_name: str, ckpt_idx=None, device='cpu'):
         self.model_path = os.path.join(DIR_PATH,
@@ -281,7 +294,9 @@ class SnoreActivityDetectorLoader:
             except:
                 raise IOError("config file reading error!")
                     
-            self.model = ModelLoader(feature_type=self.params.features_type, model_type=self.params.model_type)
+            self.model = ModelLoader(feature_type=self.params.features_type, 
+                                     model_type=self.params.model_type,
+                                     out_classes=self.params.out_classes)
 
             ckpt = Checkpointing(path=self.checkpoint_path,
                                  model=self.model.model)
@@ -307,6 +322,8 @@ class SnoreActivityDetectorLoader:
                     input(f"train_folder - Default = {self.train_folder}: "), self.train_folder)
                 self.val_folder = self.input(
                     input(f"val_folder - Default = {self.val_folder}: "), self.val_folder)
+                self.out_classes = int(self.input(
+                    input(f"out_classes - Default = {self.out_classes}: "), self.out_classes))
                 self.features_type = self.input(
                     input(f"dataset features type - Default = {self.features_type}: "), self.features_type)
                 self.model_type = self.input(
@@ -329,6 +346,7 @@ class SnoreActivityDetectorLoader:
                              dataset_path=self.dataset_path,
                              train_folder=self.train_folder,
                              val_folder=self.val_folder,
+                             out_classes=self.out_classes,
                              meta_path=self.meta_path,
                              features_type=self.features_type,
                              model_type=self.model_type,
@@ -346,8 +364,10 @@ class SnoreActivityDetectorLoader:
             raise ValueError("Model is not loaded!")
         train = Training(device=self.device,
                          model_path=self.model_path,
-                         train_dataset_path=self.dataset_path,
-                         val_dataset_path=self.val_dataset_path,
+                         dataset_path=self.dataset_path,
+                         train_folder=self.train_folder,
+                         val_folder=self.val_folder,
+                         out_classes=self.out_classes,
                          checkpoint_path=self.checkpoint_path,
                          features_type=self.params.features_type,
                          model_type=self.params.model_type,
@@ -377,7 +397,7 @@ class SnoreActivityDetectorLoader:
      
 if __name__ == "__main__": 
     device = enable_gpu(True)
-    sad = SnoreActivityDetectorLoader("CA", device=device)
-    sad.train()
+    sad = SnoreActivityDetectorLoader("CB_mfcc_clean", device=device)
+    # sad.train()
     # vad.train_from_ckpt()
-    # vad.save_ckpt_as_model("SoundNet", "C:\\Users\\shace\\Documents\\GitLab\\vad\\VAD\\inference_models")
+    sad.save_ckpt_as_model("CB_mfcc_clear", "inference_models")

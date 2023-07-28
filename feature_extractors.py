@@ -78,7 +78,7 @@ class Raw_FE(BaseFeatureExtractor):
 
 if __name__ == "__main__":
     import torch
-    audio = torch.randn((1, 32000))
+    audio = torch.randn((1, 48000))
     melspec = MelSpec_FE(win_length=160, n_fft=160, hop_length=480, n_mels=40)
     a = melspec(audio)
 

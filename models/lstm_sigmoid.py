@@ -347,11 +347,11 @@ def LSTMCell(reverse, input, hidden ,w_ih, w_hh, b_ih=None, b_hh=None):
     else:
         ingate = torch.sigmoid(ingate)
         forgetgate = torch.sigmoid(forgetgate)
-        cellgate = F.tanh(cellgate)
+        cellgate = torch.tanh(cellgate)
         outgate = torch.sigmoid(outgate)
 
         cy = (forgetgate * cx) + (ingate * cellgate)
-        hy = outgate * F.tanh(cy)
+        hy = outgate * torch.tanh(cy)
 
     return hy, cy
 

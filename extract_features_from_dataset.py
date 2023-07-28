@@ -46,8 +46,6 @@ class FeatureExtractor:
             yield (s := start + self.stride * k), s + self.samples_per_square  # python 3.8+
             
     def extractor(self, meta_info, source_audio):
-        snore = 1 if meta_info[0] == self.snore_token else 0
-
         start, end = self.ms2samples(self.sec2ms(meta_info[1][0]), self.sample_rate), self.ms2samples(self.sec2ms(meta_info[1][1]), self.sample_rate)
         end = source_audio.shape[-1] if end > source_audio.shape[-1] else end
 
@@ -56,7 +54,7 @@ class FeatureExtractor:
             interval = source_audio[:, el[0]: el[1]]
             
             features = self.transform(interval).numpy()
-            self.feat_buff.append((features, snore))
+            self.feat_buff.append((features, self.training_labels[meta_info[0]]))
             
             if len(self.feat_buff) == self.batch_size:
                 batch_file_name = f"batch_{os.getpid()}_{self.f_c}.npy"
@@ -164,6 +162,12 @@ class FeatureExtractor:
             raise Exception("Something wrong with dataset directory")
         try:
             dataset = json.load(open(join(self.dataset_path, LABEL_FILE), "r"))
+            dataset = {k: list(filter(lambda x: any(el in x for el in self.training_tokens), v)) for k, v in dataset.items()}
+            dataset = {k: v for k, v in dataset.items() if len(v)}
+
+            if not len(dataset):
+                raise Exception("Wrong labels are specified")
+
             dataset = [{item[0]: item[1]} for item in dataset.items()]
             shuffle(dataset)
             if self.limit_length:
@@ -171,6 +175,8 @@ class FeatureExtractor:
         except Exception as e:
             raise e
         
+        self.training_labels = {v: idx for idx, v in enumerate(self.training_tokens)}
+
         self.features_dir = join(self.output_path, 
                                  self.feature_type, 
                                  f"sr_{self.sample_rate}", 
@@ -224,20 +230,29 @@ if __name__ == "__main__":
         required=True
     )
     
+    # parser.add_argument(
+    #     "--snore-token",
+    #     help="A token indicating the presence of snore on the audio \
+    #     'SNORE' by default",
+    #     type=str,
+    #     default="SNORE"
+    # )
+
+    # parser.add_argument(
+    #     "--no-snore-token",
+    #     help="A token indicating the absence of snore on the audio \
+    #     'NO_SNORE' by default",
+    #     type=str,
+    #     default="NO_SNORE"
+    # )
+
     parser.add_argument(
-        "--snore-token",
-        help="A token indicating the presence of snore on the audio \
-        'SNORE' by default",
+        "--training-tokens",
+        help="Tokens that will be used during training (whitespace separated). \
+        Note, only tokens presented in label file are allowed",
         type=str,
-        default="SNORE"
-    )
-    
-    parser.add_argument(
-        "--no-snore-token",
-        help="A token indicating the absence of snore on the audio \
-        'NO_SNORE' by default",
-        type=str,
-        default="NO_SNORE"
+        nargs='+',
+        required=True
     )
     
     parser.add_argument(

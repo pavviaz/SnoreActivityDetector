@@ -2,7 +2,7 @@ import torch
 from torch import nn
 
 class CNN_Attention(nn.Module):
-    def __init__(self):
+    def __init__(self, out_classes):
         super().__init__()
         
         self.conv1 = nn.Sequential(
@@ -56,7 +56,7 @@ class CNN_Attention(nn.Module):
         self.aap = nn.AdaptiveAvgPool1d(1)
         
         self.ffn2 = nn.Sequential(
-            nn.LazyLinear(2),
+            nn.LazyLinear(out_classes),
             nn.Softmax(dim=-1)  # shoudn't be here with CrossEntropyLoss
         )
         

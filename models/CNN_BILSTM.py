@@ -5,7 +5,7 @@ from models.lstm_sigmoid import LSTMSigmoid
 
 
 class CNN_BILSTM(nn.Module):
-    def __init__(self):
+    def __init__(self, out_classes=2):
         super().__init__()
         
         self.conv1 = nn.Conv2d(1, 32, (5, 5), padding='valid')
@@ -15,7 +15,7 @@ class CNN_BILSTM(nn.Module):
         
         self.lstm = LSTMSigmoid(64, 32, batch_first=True, bidirectional=True)
         
-        self.fc2 = nn.Linear(64, 2)
+        self.fc2 = nn.Linear(64, out_classes)
             
         
     def forward(self, x):
@@ -35,6 +35,6 @@ class CNN_BILSTM(nn.Module):
 
 
 if __name__ == "__main__":
-    net = CNN_BILSTM()
+    net = CNN_BILSTM(out_classes=3)
     x = torch.randn((1, 1, 40, 67))
     net(x)
