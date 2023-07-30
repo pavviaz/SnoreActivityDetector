@@ -1,5 +1,6 @@
 import multiprocessing
 import os
+import re
 import subprocess
 from tqdm import tqdm
 import yt_dlp as Yt
@@ -15,15 +16,32 @@ DOWNLOAD_ONLY_SNORE = False
 SNORE_TAG = "SNORE"
 NO_SNORE_TAG = "NO_SNORE"
 HOME_TAG = "HOME"
+HUMAN_TAG = "HUMAN"
 
 THREADS_AMOUNT = 1
 DATASET_CSV_URL = "http://storage.googleapis.com/us_audioset/youtube_corpus/v1/csv/unbalanced_train_segments.csv"
-SNORE_LABEL = "/m/01d3sd"  # snoring (https://github.com/audioset/ontology/blob/master/ontology.json)
-HOME_LABELS = ["/m/02dgv", "/m/0642b4", "/m/0fqfqc", "/m/04brg2", "/m/023pjk", "/m/07pn_8q", 
-               "/m/0dxrf", "/m/0fx9l", "/m/02pjr4", "/g/11b630rrvh", "/m/02jz0l", "/m/0130jx", 
-               "/m/03dnzn", "/m/03wvsk", "/m/01jt3m", "/m/012xff", "/m/0d31p", "/m/01s0vc", 
-               "/m/0zmy2j9", "/m/03v3yw", "/m/0242l", "/m/05mxj0q", "/m/01lsmm", "/m/02g901", 
-               "/m/05rj2", "/m/0316dw", "/m/081rb"]
+
+# https://github.com/audioset/ontology/blob/master/ontology.json
+AUDIO_LABELS = {"/m/01d3sd": "Snore", "/m/02dgv": "Door", "/m/0642b4": "Cupboard open or close", "/m/0fqfqc": "Drawer open or close", 
+               "/m/04brg2": "Dishes, pots, and pans", "/m/023pjk": "Cutlery, silverware", "/m/07pn_8q": "Chopping (food)", 
+               "/m/0dxrf": "Frying (food)", "/m/0fx9l": "Microwave oven", "/m/02pjr4": "Blender", "/g/11b630rrvh": "Kettle whistle", 
+               "/m/02jz0l": "Water tap, faucet", "/m/0130jx": "Sink (filling or washing)", "/m/03dnzn": "Bathtub (filling or washing)", 
+               "/m/03wvsk": "Hair dryer", "/m/01jt3m": "Toilet flush", "/m/012xff": "Toothbrush", "/m/0d31p": "Vacuum cleaner", 
+               "/m/01s0vc": "Zipper (clothing)", "/m/0zmy2j9": "Velcro, hook and loop fastener", "/m/03v3yw": "Keys jangling", 
+               "/m/0242l": "Coin (dropping)", "/m/05mxj0q": "Packing tape, duct tape", "/m/01lsmm": "Scissors", "/m/081rb": "Writing",
+               "/m/02g901": "Electric shaver, electric razor", "/m/05rj2": "Shuffling cards", "/m/0316dw": "Typing", 
+               "/m/0lyf6": "Breathing", "/m/07mzm6": "Wheeze", "/m/07s0dtb": "Gasp", "/m/07pyy8b": "Pant", "/m/07q0yl5": "Snort", 
+                "/m/01b_21": "Cough", "/m/0dl9sf8": "Throat clearing", "/m/01hsr_": "Sneeze", "/m/07ppn3j": "Sniff"}
+
+LABEL_MAPPING = {"Door": HOME_TAG, "Cupboard open or close": HOME_TAG, "Drawer open or close": HOME_TAG, "Dishes, pots, and pans": HOME_TAG, 
+                 "Cutlery, silverware": HOME_TAG, "Chopping (food)": HOME_TAG, "Frying (food)": HOME_TAG, "Microwave oven": HOME_TAG, 
+                 "Blender": HOME_TAG, "Kettle whistle": HOME_TAG, "Water tap, faucet": HOME_TAG, "Sink (filling or washing)": HOME_TAG, 
+                 "Bathtub (filling or washing)": HOME_TAG, "Hair dryer": HOME_TAG, "Toilet flush": HOME_TAG, "Toothbrush": HOME_TAG, 
+                 "Vacuum cleaner": HOME_TAG, "Zipper (clothing)": HOME_TAG, "Velcro, hook and loop fastener": HOME_TAG, "Keys jangling": HOME_TAG, 
+                 "Coin (dropping)": HOME_TAG, "Packing tape, duct tape": HOME_TAG, "Scissors": HOME_TAG, "Writing": HOME_TAG, 
+                 "Electric shaver, electric razor": HOME_TAG, "Shuffling cards": HOME_TAG, "Typing": HOME_TAG, "Breathing": HUMAN_TAG, 
+                 "Wheeze": HUMAN_TAG, "Gasp": HUMAN_TAG, "Pant": HUMAN_TAG, "Snort": HUMAN_TAG, "Cough": HUMAN_TAG, 
+                 "Throat clearing": HUMAN_TAG, "Sneeze": HUMAN_TAG, "Sniff": HUMAN_TAG, "Snore": SNORE_TAG }
 YT_VIDEO_URL = "https://www.youtube.com/watch?v="
 
 SR = "16000"
@@ -39,10 +57,10 @@ ERROR_LOG = "errors.txt"
 lock = multiprocessing.Lock()
 
 
-def get_intervals(from_timestamp, to_timestamp, duration, is_home):
+def get_intervals(from_timestamp, to_timestamp, duration, tag):
     from_timestamp, to_timestamp = float(from_timestamp), float(to_timestamp)
-    if DOWNLOAD_ONLY_SNORE or is_home:
-        return [[HOME_TAG if is_home else SNORE_TAG, [0.0, to_timestamp - from_timestamp]]]
+    if DOWNLOAD_ONLY_SNORE or (tag != SNORE_TAG):
+        return [[tag, [0.0, to_timestamp - from_timestamp]]]
     
     res_label = [[SNORE_TAG, [from_timestamp, to_timestamp]]]
     if from_timestamp:
@@ -55,7 +73,7 @@ def get_intervals(from_timestamp, to_timestamp, duration, is_home):
 
 def save_audio_from_vid(yt_vid_id, from_timestamp, to_timestamp, label):
     try:
-        is_home = label != SNORE_LABEL
+        label = LABEL_MAPPING[AUDIO_LABELS[label]]
         audio_path = None
         data_path = os.path.join(DATASET_DIR, AUDIOS_DIR)
 
@@ -75,9 +93,9 @@ def save_audio_from_vid(yt_vid_id, from_timestamp, to_timestamp, label):
         audio_path = os.path.join(data_path, f"{os.getpid()}.{metainf['ext']}")
         
         ffmpeg_params = ["ffmpeg"] + \
-                        (["-ss", str(from_timestamp)] if (DOWNLOAD_ONLY_SNORE or is_home) else []) + \
+                        (["-ss", str(from_timestamp)] if (DOWNLOAD_ONLY_SNORE or (label != SNORE_TAG)) else []) + \
                         ["-i", audio_path] + \
-                        (["-to", str(to_timestamp - from_timestamp)] if (DOWNLOAD_ONLY_SNORE or is_home) else []) + \
+                        (["-to", str(to_timestamp - from_timestamp)] if (DOWNLOAD_ONLY_SNORE or (label != SNORE_TAG)) else []) + \
                         ["-acodec", CODEC] + \
                         ["-ar", SR] + \
                         ["-ac", "1"] + \
@@ -87,7 +105,7 @@ def save_audio_from_vid(yt_vid_id, from_timestamp, to_timestamp, label):
 
         lock.acquire()
         label_stream = open(os.path.join(DATASET_DIR, TMP_LABELS), "a+")
-        label_stream.write(str({f"{yt_vid_id}.wav": get_intervals(from_timestamp, to_timestamp, float(metainf["duration"]), is_home)}) + "\n")
+        label_stream.write(str({f"{yt_vid_id}.wav": get_intervals(from_timestamp, to_timestamp, float(metainf["duration"]), label)}) + "\n")
         label_stream.close()
         lock.release()
         
@@ -122,22 +140,28 @@ def main(dataset):
         t.join()
 
 
-def get_dataset_csv():
-    def __get_label_line(line: str):
+def get_dataset_csv(choose_only_first_tag=False):
+    def __get_label_line(line: str, choose_only_first_tag):
+        if "#" in line:
+            return "#"
         meta, tags = line.split(', "')
-        if len((t:=tags.split(","))) > 1:
-            return f"{meta}, {t[0]}"
-        return f'{meta}, {tags[:-1]}'
+        re_tags = re.findall(r"[\/]\w[\/]\w+", tags)
 
+        if not choose_only_first_tag:
+            for tag in re_tags:
+                if tag in AUDIO_LABELS:
+                    return f'{meta}, {tag}'
+            return "#"
+
+        return f'{meta}, {re_tags[0]}' if re_tags[0] in AUDIO_LABELS else "#"
+        
     print("Downloading and preprocessing data... Please wait, this can be time consuming...")
-    data = requests.get(DATASET_CSV_URL).text.split("\n")
+    data = requests.get(DATASET_CSV_URL).text.split("\n")[:-1]
     random.shuffle(data)
 
-    snore_data = list(filter(lambda x: SNORE_LABEL in x and not "#" in x, data))
-    home_data = filter(lambda x: any(tag in x for tag in HOME_LABELS) and not "#" in x, data)
-    data = chain(snore_data, islice(home_data, len(snore_data)))
+    data = map(lambda x: __get_label_line(x, choose_only_first_tag), data)
+    data = filter(lambda x: not "#" in x, data)
 
-    data = map(__get_label_line, data)
     data = map(lambda x: x.replace(" ", "").split(","), data)
     data = map(lambda x: [x[0], int(x[1].split(".")[0]), int(x[2].split(".")[0]), x[3]], data)
     return list(data)
