@@ -1,0 +1,5 @@
+extracting_threads_amount: 8
+sample_rate: 16000
+codec: "pcm_s16le"  # can be changed to 24 bits
+data_path: "folder1"
+save_path: "folder2"

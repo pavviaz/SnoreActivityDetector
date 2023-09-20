@@ -1,0 +1,10 @@
+only_first: True
+download_only_snore: False
+download_threads_amount: 16
+sample_rate: 16000
+codec: "pcm_s16le"  # can be changed to 24 bits
+save_path: "audio_data/data_home_human_of2"
+audios_dir: "audios"
+tmp_labels: "tmp_labels.txt"
+label_file: "labels.json"
+error_log: "errors.txt"

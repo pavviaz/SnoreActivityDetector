@@ -1,0 +1,84 @@
+general:
+  model_name: "M5E_greek_clear"
+  description: 
+
+  device: "cuda"
+  cuda_params:
+    pin_memory: True
+    num_workers: 6
+    persistent_workers: True
+
+  # add mixed precision training
+  save_only_best: True
+  convert_to_fp16: 
+
+  continue_from:  # with original fc layer
+
+  finetune_from:  # with new fc layer
+  # restore_scheduler_state: True
+
+  seed: 
+
+
+# if this key is specified, feature extraction procedure will be perfomed before training
+prepare_dataset_conf: 
+
+
+training:
+  model_to_use: "M5E"  # docs ; multiple models
+
+  dataset_conf: "D:/SnoreFeatures_greek_clear/extraction_config.yaml"  # doesn't work if "prepare_dataset_conf" is specified
+
+  epochs: 20
+  # batch_size: 256  # load everything and rearrange to this batch
+
+  # add more loss funcs
+  loss_func:
+    type: "crossentropy"
+    params:
+      label_smoothing: 0
+
+  optimizer:
+    type: "adam"  # adamw, radam, sgd
+    params:
+      lr: 0.0005
+      weight_decay: 0.01
+      betas:
+      - 0.9
+      - 0.999
+      eps: !!float 1e-08
+      amsgrad: False
+    # warmup: False
+  
+  # add scheduler
+
+  
+models_params:
+  M5:
+    n_channel: 40
+    stride: 16
+
+  M5E:
+    n_channel: 40
+    stride: 16
+  
+  CB:
+    ffn_dim: 64
+    lstm_dim: 32
+  
+  CNNT:
+    transformer_d_model: 64
+    nhead: 4
+    transformer_dimforward: 512
+    transformer_dropout: 0.2
+    transformer_enc_num: 3
+
+  CA:
+    transformer_nhead: 4
+    transformer_dropout: 0.2
+    ffn_dim: 256
+
+  R1D:
+    stride: 16
+
+  # write conf for other models

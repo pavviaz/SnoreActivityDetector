@@ -1,0 +1,109 @@
+general:
+  training_tokens: ["NO_SPEECH", "SPEECH", "SNORE"]
+  limit_for_class: "SNORE"
+  # limit_for_class: 22000
+  include_silence: 
+  stride: 128
+  sample_rate: 16000
+  win_len: 10
+  n_fft: 256
+  hop_len: 10
+  n_mels: 32
+  mel_size: 1000
+  feature_type: "raw"
+  compute_threads: 8
+  use_gpu: False
+  batch_size: 32
+  shuffle_window: 100
+  shuffle_hop: 10
+  use_equalization: &target_dBFS -20
+  output_path: "D:/SnoreFeatures_greek_clear"
+  train_val_split: [85, 10]
+  train_folder: "train"
+  val_folder: "validation"
+  test_folder: "test"
+
+  # labels_merging:
+  #   "HOME": "NO_SNORE"
+  #   "SPEECH": "NO_SNORE"
+  #   "NO_SPEECH": "NO_SNORE"
+
+  augmentations_config:
+    background_noise:
+      noise_path: "C:/Users/shace/Documents/GitHub/snore_detector/SnoreActivityDetector/audio_data/sound_noises"
+      batch_size: 1
+      noise_max_samples: 16000
+      level: [0.05, 0.3]
+      probability: 0.25
+    gaussian_noise:
+      level: [0.0005, 0.00005]
+      probability: 0.3
+    equalize_amplitude:
+      target_dBFS: *target_dBFS
+      probability: 1.0
+    random_gain:
+      min_gain: -25.0
+      max_gain: 1.0
+      probability: 0.5
+    time_shift:
+      shift_factor: [0.1, 0.3]
+      probability: 0.15
+    impulse:
+      impulse_path: "C:/Users/shace/Desktop/hey-terra-kws-2-tf/nano-kws/impulses/h017_Livingroom_152txts_16bit.wav"
+      level: [0.5, 0.8]
+      probability: 0.2
+    low_pass_filter:
+      max_cutoff_freq: 8000
+      min_cutoff_freq: 1500
+      probability: 0.3
+    trim_silence:
+      win_len: 1000
+      hop_len: 1000
+      offset: 1000
+      loudest_chunk_amount: 3
+      probability: 1.0
+
+
+data_kaggle:
+  path: "C:/Users/shace/Documents/GitHub/snore_detector/SnoreActivityDetector/audio_data/kaggle_snore2"
+  label_file: ""
+  audio_folder: ""
+  tokens: ["SNORE"]
+  strict_token: "SNORE"
+  augmentations: [[]]
+
+
+# data_greek:
+#   path: "C:/Users/shace/Documents/GitHub/snore_detector/SnoreActivityDetector/audio_data/greek_mic_snore_only_clear_extra"
+#   label_file: ""
+#   audio_folder: ""
+#   tokens: ["SNORE"]
+#   strict_token: "SNORE"
+#   augmentations: [[]]
+
+
+# data_noise:
+#   path: "C:/Users/shace/Documents/GitHub/snore_detector/SnoreActivityDetector/audio_data/chime_home"
+#   label_file: ""
+#   audio_folder: ""
+#   tokens: ["SILENCE"]
+#   strict_token: "SILENCE"
+#   augmentations: [[]]
+
+
+speech:
+  path: "F:/Users/shace/Documents/GitLab/full_ava_dataset"
+  label_file: "label.json"
+  audio_folder: "audios"
+  tokens: ["NO_SPEECH", "SPEECH"]
+  strict_token: ""
+  augmentations: [[], []]
+
+
+# data_main:
+#   path: "C:/Users/shace/Documents/GitHub/snore_detector/SnoreActivityDetector/audio_data/data_home_human_of"
+#   label_file: "labels.json"
+#   audio_folder: "audios"
+#   tokens: ["HOME"]
+#   strict_token: ""
+#   augmentations: [[]]

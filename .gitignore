@@ -160,8 +160,9 @@ cython_debug/
 .idea/
 
 # Dataset
-data/
-data2/
-data_home/
+audio_data/
+test_mic_audios/
+testing_utils/
 trained_models/
 inference_models/
+tests/
