@@ -33,10 +33,24 @@ from utils import disable_plot_show, enable_plot_show, flatten_dict, log_init
 class ModelManager:
     def __init__(
         self,
-        config_path=None,
-        model_name=None,
-        default_mlflow_host="http://127.0.0.1:5000",
+        config_path: str = None,
+        model_name: str = None,
+        default_mlflow_host: str = "http://127.0.0.1:5000",
     ):
+        """
+        Initialize the ModelManager object.
+
+        Args:
+            config_path (str, optional): Path to the configuration file. 
+            Defaults to None.
+            model_name (str, optional): Name of the pre-trained model. 
+            Defaults to None.
+            default_mlflow_host (str, optional): Default MLflow host URL. 
+            Defaults to "http://127.0.0.1:5000".
+
+        Returns:
+            None
+        """
         self.log_str = StringIO()
         self.logger = log_init(self.log_str)
 
@@ -78,62 +92,83 @@ class ModelManager:
         if "seed" in self.cfg.general and self.cfg.general.seed:
             self.__seed_everything()
 
-        if self.cfg.general.continue_from and self.cfg.general.finetune_from:
-            error_msg = "Either one of 'continue_from' and 'finetune_from' \
-                         params, or none of them must be specified"
-            self.__invoke_exception(error_msg, ValueError)
-        elif self.cfg.general.continue_from:
-            pass
-        elif self.cfg.general.finetune_from:
-            pass
-        else:
-            if not os.path.exists(self.cfg.training.dataset_path):
-                error_msg = f"Dataset on '{self.cfg.training.dataset_path}' \
-                              does not exist"
-                self.__invoke_exception(error_msg, OSError)
-
-            data_cfg = self.__config_reader(
-                os.path.join(self.cfg.training.dataset_path, CONFIG_DUMP_NAME)
-            )
-            self.data_cfg = munchify(data_cfg)
-
-            if not self.cfg.training.model_to_use in self.cfg.models_params:
-                error_msg = f"No params specified for \
-                             '{self.cfg.training.model_to_use}' in config file"
-                self.__invoke_exception(error_msg, ValueError)
-
-            m = MODELS.get(self.cfg.training.model_to_use, None)
-            if not m:
-                error_msg = f"Not exisiting model type \
-                              '{self.cfg.training.model_to_use}'"
-                self.__invoke_exception(error_msg, ValueError)
-
-            if FEATURES[self.data_cfg.general.feature_type]["type"] != m["feature"]:
-                error_msg = f"Passing not appropriate feature type \
-                              '{self.data_cfg.general.feature_type}' \
-                              for model '{self.cfg.training.model_to_use}'"
-                self.__invoke_exception(error_msg, ValueError)
-            self.m = m["cls"]
-
-            self.device = self.__enable_gpu(self.cfg.general.device)
-
-            self.out_classes = len(self.data_cfg.general.training_tokens)
-            self.model = self.m(
-                out_classes=self.out_classes,
-                **self.cfg.models_params[self.cfg.training.model_to_use],
-            )
-
-        # if self.cfg.prepare_dataset_conf:
-        #     self.cfg.training.dataset_dir = -1
+        # if self.cfg.general.continue_from and self.cfg.general.finetune_from:
+        #     error_msg = "Either one of 'continue_from' and 'finetune_from' \
+        #                  params, or none of them must be specified"
+        #     self.__invoke_exception(error_msg, ValueError)
+        # elif self.cfg.general.continue_from:
         #     pass
+        # elif self.cfg.general.finetune_from:
+        #     pass
+        # else:
+        if not os.path.exists(self.cfg.training.dataset_path):
+            error_msg = f"Dataset on '{self.cfg.training.dataset_path}' \
+                          does not exist"
+            self.__invoke_exception(error_msg, OSError)
+
+        data_cfg = self.__config_reader(
+            os.path.join(self.cfg.training.dataset_path, CONFIG_DUMP_NAME)
+        )
+        self.data_cfg = munchify(data_cfg)
+
+        if not self.cfg.training.model_to_use in self.cfg.models_params:
+            error_msg = f"No params specified for \
+                         '{self.cfg.training.model_to_use}' in config file"
+            self.__invoke_exception(error_msg, ValueError)
+
+        m = MODELS.get(self.cfg.training.model_to_use, None)
+        if not m:
+            error_msg = f"Not exisiting model type \
+                          '{self.cfg.training.model_to_use}'"
+            self.__invoke_exception(error_msg, ValueError)
+
+        if FEATURES[self.data_cfg.general.feature_type]["type"] != m["feature"]:
+            error_msg = f"Passing not appropriate feature type \
+                          '{self.data_cfg.general.feature_type}' \
+                          for model '{self.cfg.training.model_to_use}'"
+            self.__invoke_exception(error_msg, ValueError)
+        self.m = m["cls"]
+
+        self.device = self.__enable_gpu(self.cfg.general.device)
+
+        self.out_classes = len(self.data_cfg.general.training_tokens)
+        self.model = self.m(
+            out_classes=self.out_classes,
+            **self.cfg.models_params[self.cfg.training.model_to_use],
+        )
 
     @staticmethod
     def __enable_gpu(device):
+        """
+        Determine whether a GPU is available 
+        and return the appropriate device string.
+
+        Args:
+        - device (string): The device string to 
+        check for GPU availability.
+
+        Returns:
+        - device (string): The device string 
+        indicating whether a GPU is available or not.
+        """
+
         if "cuda" in device:
             return device if torch.cuda.is_available() else "cpu"
         return "cpu"
 
     def __config_reader(self, config_path):
+        """
+        Read a YAML configuration file and 
+        return its contents as a Python dictionary.
+
+        Args:
+            config_path (str): The path to the 
+            YAML configuration file.
+
+        Returns:
+            dict: The contents of the YAML 
+            configuration file as a Python dictionary.
+        """
         if not os.path.exists(config_path):
             error_msg = f"Config file on {config_path} path does not exist"
             self.__invoke_exception(error_msg, OSError)
@@ -144,12 +179,37 @@ class ModelManager:
         return config
 
     def __invoke_exception(self, msg, exc):
+        """
+        Logs an error message, ends the 
+        current MLflow run, and raises an exception.
+
+        Args:
+            msg (str): The error message to be logged.
+            exc (Exception): The exception class to be raised.
+
+        Raises:
+            Exception: The specified exception class 
+            with the error message as the argument.
+        """
         self.logger.error(msg)
         mlflow.end_run()
 
         raise exc(msg)
 
     def __check_config(self, _dict):
+        """
+        Recursively checks if all values 
+        in a nested dictionary are specified.
+
+        Args:
+        - _dict (dict): A nested 
+        dictionary to check for missing values.
+
+        Returns:
+        - None: The method does not return any value. 
+        It either completes successfully or 
+        raises a `ValueError` if a value is missing.
+        """
         for k, v in _dict.items():
             if isinstance(v, dict):
                 self.__check_config(v)
@@ -158,6 +218,16 @@ class ModelManager:
                 self.__invoke_exception(error_msg, ValueError)
 
     def __seed_everything(self):
+        """
+        Set the random seed for 
+        reproducibility in the training process.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         random.seed(self.cfg.general.seed)
         np.random.seed(self.cfg.general.seed)
         torch.manual_seed(self.cfg.general.seed)
@@ -165,6 +235,18 @@ class ModelManager:
         torch.backends.cudnn.benchmark = False
 
     def __load_model(self, name):
+        """
+        Load a pre-trained model from 
+        MLflow based on the provided model name.
+
+        Args:
+            name (str): The name of the pre-trained model to load.
+
+        Returns:
+            model (PyTorch model): The loaded pre-trained model.
+            run_id (str): The run ID of the model in MLflow.
+            inp_shape (list): The modified input shape of the model.
+        """
         try:
             filter_string = f"name='{name}'"
             model = self.client.search_registered_models(
@@ -185,6 +267,15 @@ class ModelManager:
             self.__invoke_exception(error_msg, OSError)
 
     def __log_essential_files(self):
+        """
+        Log essential files and information to MLflow.
+
+        This method logs the flattened configuration 
+        parameters, the configuration dictionaries, 
+        and various source code files related to the training process.
+
+        :return: None
+        """
         mlflow.log_params(flatten_dict(self.cfg, parent_key="training"))
         mlflow.log_params(flatten_dict(self.data_cfg, parent_key="data"))
 
@@ -205,6 +296,22 @@ class ModelManager:
         )
 
     def __log_all_metrics(self, stage, ep, step, all_steps, preserve=False):
+        """
+        Logs all the metrics and the 
+        confusion matrix during the training process.
+
+        Args:
+            stage (str): The current stage of 
+            the training process (e.g., "train", "val").
+            ep (int): The current epoch number.
+            step (int): The current step number.
+            all_steps (int): The total number of steps.
+            preserve (bool, optional): A flag indicating whether to 
+            preserve the metrics or not. Defaults to False.
+
+        Returns:
+            None
+        """
         cur_step_metrics = (
             self.metrics_tracker.compute_current()
             if not preserve
@@ -234,6 +341,19 @@ class ModelManager:
         )
 
     def __train_step(self, img_tensor, target):
+        """
+        Perform a single training step for the model.
+
+        Args:
+            img_tensor (torch.Tensor): The input tensor 
+            for the training step.
+            target (torch.Tensor): The target tensor 
+            for the training step.
+
+        Returns:
+            None. The method performs the training step and 
+            updates the model parameters and metrics tracker.
+        """
         img_tensor, target = img_tensor.type(torch.float32).to(
             self.device
         ), target.type(torch.int64).to(self.device)
@@ -251,6 +371,19 @@ class ModelManager:
         )
 
     def __val_step(self, img_tensor, target):
+        """
+        Perform a single validation step for the model.
+
+        Args:
+            img_tensor (torch.Tensor): The input tensor 
+            for the validation step.
+            target (torch.Tensor): The target tensor 
+            for the validation step.
+
+        Returns:
+            None. The method performs the validation step and 
+            updates the metrics tracker.
+        """
         img_tensor, target = img_tensor.type(torch.float32).to(
             self.device
         ), target.type(torch.int64).to(self.device)
@@ -263,6 +396,15 @@ class ModelManager:
         )
 
     def train(self):
+        """
+        Trains the model using the specified dataset and configuration parameters.
+
+        Args:
+            None
+
+        Returns:
+        None
+        """
         train_data_dir = os.path.join(
             self.cfg.training.dataset_path, self.data_cfg.general.train_folder
         )
@@ -457,6 +599,15 @@ class ModelManager:
             )
 
     def export_jit_model(self):
+        """
+        Exports a PyTorch model to a JIT (Just-in-Time) format for deployment.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         f_model = self.get_featured_model()
         f_model.to("cpu")
         f_model.eval()

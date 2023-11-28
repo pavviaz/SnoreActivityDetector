@@ -10,12 +10,6 @@ general:
 
   # add mixed precision training
   save_only_best: True
-  convert_to_fp16: 
-
-  continue_from:  # with original fc layer
-
-  finetune_from:  # with new fc layer
-  # restore_scheduler_state: True
 
   seed: 1234
 
@@ -23,7 +17,7 @@ general:
 
 
 training:
-  model_to_use: "CB"  # docs ; multiple models
+  model_to_use: "M5"  # docs ; multiple models
 
   dataset_path: "D:/SnoreFeatures_kaggle"  # doesn't work if "prepare_dataset_conf" is specified
 
