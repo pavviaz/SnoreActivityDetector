@@ -197,7 +197,7 @@ class SnoreInference:
                     stride = {self.stride}\n \
                     self.threshold = {self.threshold}\n \
                     mean_overlap={self.mean_overlaps}\n \
-                    mel_size = {self.data_cfg.general.mel_size}\n \
+                    mel_size = {self.data_cfg.general.chunk_size}\n \
                     batch_size = {self.batch_size}"
         )
 
@@ -223,7 +223,7 @@ class SnoreInference:
                 )
             labels.update(
                 {
-                    (k * self.stride, k * self.stride + self.data_cfg.general.mel_size): v
+                    (k * self.stride, k * self.stride + self.data_cfg.general.chunk_size): v
                     for k, v in zip(
                         y.cpu().numpy().tolist(), output.cpu().numpy().tolist()
                     )
@@ -279,11 +279,11 @@ if __name__ == "__main__":
     vad = SnoreInference(
         mean_overlaps=False,
         verbose=True,
-        vad_ckpt_path="M5E_greek_clear",
-        generate_clear_audio="M5E_greek_clear",
-        exact_threshold_value=0.5,
+        vad_ckpt_path="SAD_M5E_kaggle_test",
+        generate_clear_audio="SAD_M5E_kaggle_test",
+        exact_threshold_value=0.4,
         stride=1000,
-        device="cuda",
+        device="cpu",
     )
 
     vad.predict("test_mic_audios/230810_0002_conv.wav")

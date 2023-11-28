@@ -1,4 +1,3 @@
-import torch
 import torcheval.metrics as metrics
 import torcheval.metrics.functional as F
 from matplotlib import pyplot as plt
@@ -250,13 +249,13 @@ if __name__ == "__main__":
     y_pred = torch.tensor([1, 1, 2, 1, 0, 2, 0, 1, 2, 1, 1, 1])
     y_true = torch.tensor([1, 1, 2, 1, 2, 1, 0, 0, 0, 2, 2, 2])
 
-    cm.update(y_pred[:5], y_true[:5], 1)
-    print(cm.compute_current())
-    cm.update(y_pred[5:], y_true[5:], 2)
-    print(cm.compute_current())
+    # cm.update(y_pred[:5], y_true[:5], 1)
+    # print(cm.compute_current())
+    # cm.update(y_pred[5:], y_true[5:], 2)
+    # print(cm.compute_current())
 
-    r = cm.compute_all()
-    print(r)
+    # r = cm.compute_all()
+    # print(r)
 
     # cm.reset()
 

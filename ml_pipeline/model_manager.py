@@ -6,6 +6,9 @@ from collections import defaultdict
 from io import StringIO
 
 import matplotlib
+
+os.environ["MATPLOTLIB_BACKEND"] = matplotlib.get_backend()
+
 import mlflow
 import numpy as np
 import torch
@@ -14,16 +17,15 @@ from mlflow.models import infer_signature
 from mlflow.artifacts import download_artifacts
 from munch import munchify
 from torch.utils.data import DataLoader
-
-os.environ["MATPLOTLIB_BACKEND"] = matplotlib.get_backend()
-
 import yaml
+
 from compute_metrics import MetricsTracker
 from data_utils.extract_features_from_dataset import FeatureExtractor
+from data_utils.extract_features_from_dataset import CONFIG_DUMP_NAME
 from model_constructor import ModelFeatured
 from matplotlib import pyplot as plt
 from meta_dicts import FEATURES, LOSS_FUNCS, MODELS, OPTIMS
-from dataloader import LoadDataset, LoadDataset_FL
+from dataloader import LoadDataset
 from tqdm import tqdm
 from utils import disable_plot_show, enable_plot_show, flatten_dict, log_init
 
@@ -47,7 +49,7 @@ class ModelManager:
         self.client = MlflowClient()
 
         if model_name:
-            self.model, run_id = self.__load_model(model_name)
+            self.model, run_id, inp_shape = self.__load_model(model_name)
 
             self.logger.info(f"Model '{model_name}' have been found")
 
@@ -60,6 +62,7 @@ class ModelManager:
 
             self.cfg = munchify(self.__config_reader(cfg))
             self.data_cfg = munchify(self.__config_reader(data_cfg))
+            self.input_shape = inp_shape
             return
 
         config = self.__config_reader(config_path)
@@ -72,7 +75,7 @@ class ModelManager:
         mandatory_params = [self.cfg.training, self.cfg.models_params]
         [self.__check_config(d) for d in mandatory_params]
 
-        if self.cfg.general.seed:
+        if "seed" in self.cfg.general and self.cfg.general.seed:
             self.__seed_everything()
 
         if self.cfg.general.continue_from and self.cfg.general.finetune_from:
@@ -84,12 +87,14 @@ class ModelManager:
         elif self.cfg.general.finetune_from:
             pass
         else:
-            if not os.path.exists(self.cfg.training.dataset_conf):
-                error_msg = f"Dataset on '{self.cfg.training.dataset_conf}' \
+            if not os.path.exists(self.cfg.training.dataset_path):
+                error_msg = f"Dataset on '{self.cfg.training.dataset_path}' \
                               does not exist"
                 self.__invoke_exception(error_msg, OSError)
 
-            data_cfg = self.__config_reader(self.cfg.training.dataset_conf)
+            data_cfg = self.__config_reader(
+                os.path.join(self.cfg.training.dataset_path, CONFIG_DUMP_NAME)
+            )
             self.data_cfg = munchify(data_cfg)
 
             if not self.cfg.training.model_to_use in self.cfg.models_params:
@@ -118,9 +123,9 @@ class ModelManager:
                 **self.cfg.models_params[self.cfg.training.model_to_use],
             )
 
-        if self.cfg.prepare_dataset_conf:
-            self.cfg.training.dataset_dir = -1
-            pass
+        # if self.cfg.prepare_dataset_conf:
+        #     self.cfg.training.dataset_dir = -1
+        #     pass
 
     @staticmethod
     def __enable_gpu(device):
@@ -169,7 +174,12 @@ class ModelManager:
             metainf = model[0].latest_versions[-1]
             model_uri = f"models:/{name}/{metainf.version}"
 
-            return mlflow.pytorch.load_model(model_uri), metainf.run_id
+            inp_shape = eval(
+                mlflow.models.get_model_info(model_uri).signature.to_dict()["inputs"]
+            )[0]["tensor-spec"]["shape"]
+            inp_shape[0] = 1  # batch size
+
+            return mlflow.pytorch.load_model(model_uri), metainf.run_id, inp_shape
         except:
             error_msg = f"No specified model '{name}' found"
             self.__invoke_exception(error_msg, OSError)
@@ -253,11 +263,15 @@ class ModelManager:
         )
 
     def train(self):
-        dataset_dir = os.path.dirname(self.cfg.training.dataset_conf)
-
-        train_data_dir = os.path.join(dataset_dir, self.data_cfg.general.train_folder)
-        val_data_dir = os.path.join(dataset_dir, self.data_cfg.general.val_folder)
-        test_data_dir = os.path.join(dataset_dir, self.data_cfg.general.test_folder)
+        train_data_dir = os.path.join(
+            self.cfg.training.dataset_path, self.data_cfg.general.train_folder
+        )
+        val_data_dir = os.path.join(
+            self.cfg.training.dataset_path, self.data_cfg.general.val_folder
+        )
+        test_data_dir = os.path.join(
+            self.cfg.training.dataset_path, self.data_cfg.general.test_folder
+        )
 
         if any(
             not os.path.exists(d_dir)
@@ -361,6 +375,7 @@ class ModelManager:
                 self.metrics_tracker.reset()
 
                 if not signature:
+                    self.input_shape = img_tensor.numpy().shape
                     signature = infer_signature(
                         model_input=img_tensor.numpy(),
                         model_output=self.model(img_tensor.to(self.device))
@@ -420,7 +435,7 @@ class ModelManager:
             self.logger.info(f"Training is done!")
 
             self.logger.info(f"Testing...")
-            self.model, _ = self.__load_model(self.cfg.general.model_name)
+            self.model, _, _ = self.__load_model(self.cfg.general.model_name)
 
             self.model.eval()
             with torch.no_grad():
@@ -441,9 +456,25 @@ class ModelManager:
                 text=self.log_str.getvalue(), artifact_file="training_log.txt"
             )
 
+    def export_jit_model(self):
+        f_model = self.get_featured_model()
+        f_model.to("cpu")
+        f_model.eval()
+
+        dummy_inp = torch.rand(*self.input_shape)
+
+        traced_model = torch.jit.trace(self.model, dummy_inp)
+
+        os.makedirs(self.cfg.general.export_path, exist_ok=True)
+        save_path = os.path.join(
+            os.path.normpath(self.cfg.general.export_path),
+            f"{self.cfg.general.model_name}.pt",
+        )
+        traced_model.save(save_path)
+
     def get_featured_model(self):
         return ModelFeatured(self.model, self.data_cfg)
-    
+
     def get_model(self):
         return self.model
 
@@ -452,6 +483,9 @@ class ModelManager:
 
     def get_data_cfg(self):
         return self.data_cfg
+
+    def get_model_inp_shape(self):
+        return self.input_shape
 
 
 if __name__ == "__main__":

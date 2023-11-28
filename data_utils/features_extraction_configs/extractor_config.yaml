@@ -1,0 +1,116 @@
+general:
+  # Будут извлекаться признаки 4-ех классов:
+  # "__silence__": Тишина (метка 0, добавляется параметром use_silence); 
+  # "NO_SPEECH": Шум/тишина (метка 1);
+  # "SPEECH": Речь (метка 2); 
+  # "SNORE": Храп (метка 3, ключевой класс)
+  training_tokens: ["NO_SPEECH", "SPEECH", "SNORE"]
+
+  # Общее кол-во извлеченных признаков можно
+  # ограничить как количеством признаков одного класса
+  limit_for_class: "SNORE"
+
+  # Так и конкретным числом
+  limit_for_class: 55000
+
+  # Используем размер окна и сдвиг 1000мс
+  # при частоте дискретизации 16000
+  stride: 1000
+  chunk_size: 1000
+  sample_rate: 16000
+
+  # Используем MFCC в качестве признака
+  feature_type: "mfcc"
+
+  # Параметры извлечения спектрограмм
+  win_len: 10
+  n_fft: 256
+  hop_len: 10
+  n_mels: 32
+
+  # Используем 8 потоков процессора для процесса извлечения
+  compute_threads: 8
+  use_gpu: False
+
+  # Каждый сохраненный файл будет содержать 128 пар
+  # (признак ; метка класса)
+  batch_size: 128
+  shuffle_window: 100
+  shuffle_hop: 50
+
+  # Сохраняем признаки с разбивкой 85% на обучение,
+  # 10% на валидацию и 5% на тестовую
+  output_path: "C:/features_save_dir"
+  train_val_split: [85, 10]
+  train_folder: "train"
+  val_folder: "validation"
+  test_folder: "test"
+
+  # Нормализуем громкость каждого аудио к -20 dbFS
+  use_equalization: -20
+
+  # Добавляем тишину в список классов
+  use_silence:
+    ratio: 0.3  # В обучающую выборку будет добавлено 30% от ключевого класса "SNORE"
+    silence_path: "C:/noise_examples"
+    augmentations: ["gaussian_noise", "background_noise"]
+
+  # Не используем объединение классов
+  # В этом примере итоговых классов стало бы всего 2:
+  # "NO_SNORE", объединяющий "NO_SPEECH" и "SPEECH",
+  # и "SNORE_EXAMPLE", аналогичный "SNORE"
+  # labels_merging:
+  #   "SPEECH": "NO_SNORE"
+  #   "NO_SPEECH": "NO_SNORE"
+  #   "SNORE": "SNORE_EXAMPLE"
+
+  # Конфигурация аугментаций
+  augmentations_config:
+    background_noise:
+      noise_path: "C:/sound_noises"
+      level: [0.05, 0.3]
+      probability: 0.2
+    gaussian_noise:
+      level: [0.0005, 0.00005]
+      probability: 0.3
+    random_gain:
+      min_gain: -25.0
+      max_gain: 1.0
+      probability: 0.5
+    time_shift:
+      shift_factor: [0.1, 0.3]
+      probability: 0.15
+    impulse:
+      impulse_path: "C:/h017_Livingroom_152txts_16bit.wav"
+      level: [0.5, 0.8]
+      probability: 0.2
+    low_pass_filter:
+      max_cutoff_freq: 8000
+      min_cutoff_freq: 1500
+      probability: 0.2
+
+
+# Добавляем данные первого типа
+data_first_type:
+  # В этой директории должна быть папка "audios" с аудио и файл разметки этих аудио "label.json"
+  path: "С:/dir_with_label_and_audios_folder"
+  label_file: "label.json"
+  audio_folder: "audios"
+
+  # загружаем из данных только классы "NO_SPEECH" и "SPEECH"
+  tokens: ["NO_SPEECH", "SPEECH"]
+
+  # Используем для обоих классов аугментации для наложения фонового шума, смещению по времени и низкочастотный фильтр
+  augmentations: [["background_noise", "time_shift", "low_pass_filter"], ["background_noise", "time_shift", "low_pass_filter"]]
+
+
+# Добавляем данные второго типа
+data_second_type:
+  # В этой директории должны быть только аудио
+  path: "C:/only_audio_dir"
+
+  # Обозначаем, что все эти аудио относятся к классу "SNORE"
+  tokens: ["SNORE"]
+
+  # Применяем к этим аудио только смещение по времени
+  augmentations: [["time_shift"]]

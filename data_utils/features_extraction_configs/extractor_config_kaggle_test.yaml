@@ -1,13 +1,14 @@
 general:
   training_tokens: ["NO_SPEECH", "SPEECH", "SNORE"]
-  # limit_for_class: "SNORE"
-  limit_for_class: 55000
+  
+  limit_for_class: "SNORE"
+  # limit_for_class: 22000
 
-  stride: 1000
   chunk_size: 1000
+  stride: 128
   sample_rate: 16000
 
-  feature_type: "raw"
+  feature_type: "mfcc"
 
   win_len: 10
   n_fft: 256
@@ -17,11 +18,11 @@ general:
   compute_threads: 8
   use_gpu: False
 
-  batch_size: 128
+  batch_size: 32
   shuffle_window: 100
   shuffle_hop: 50
 
-  output_path: "D:/SnoreFeatures_greek_clear"
+  output_path: "D:/SnoreFeatures_kaggle"
   train_val_split: [85, 10]
   train_folder: "train"
   val_folder: "validation"
@@ -43,7 +44,7 @@ general:
     background_noise:
       noise_path: "C:/Users/shace/Documents/GitHub/snore_detector/SnoreActivityDetector/audio_data/sound_noises"
       level: [0.05, 0.3]
-      probability: 0.2
+      probability: 0.25
     gaussian_noise:
       level: [0.0005, 0.00005]
       probability: 0.3
@@ -55,7 +56,7 @@ general:
       shift_factor: [0.1, 0.3]
       probability: 0.15
     impulse:
-      impulse_path: "C:/Users/shace/Desktop/hey-terra-kws-2-tf/nano-kws/impulses/h017_Livingroom_152txts_16bit.wav"
+      impulse_path: "C:/Users/shace/Desktop/nanosemantics_legacy/hey-terra-kws-2-tf/nano-kws/impulses/h017_Livingroom_152txts_16bit.wav"
       level: [0.5, 0.8]
       probability: 0.2
     low_pass_filter:
@@ -64,10 +65,11 @@ general:
       probability: 0.2
 
 
-data_greek:
-  path: "C:/Users/shace/Documents/GitHub/snore_detector/SnoreActivityDetector/audio_data/greek_mic_snore_only_clear"
+data_kaggle:
+  path: "C:/Users/shace/Documents/GitHub/snore_detector/SnoreActivityDetector/audio_data/kaggle_snore2"
   tokens: ["SNORE"]
-  augmentations: [["time_shift"]]
+  augmentations: [[]]
+  # ["background_noise", "gaussian_noise", "random_gain", "time_shift", "impulse", "low_pass_filter"]
 
 
 speech:

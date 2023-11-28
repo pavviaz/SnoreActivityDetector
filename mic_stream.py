@@ -107,7 +107,7 @@ class StreamPrediction:
                 data = torch.tensor(np.expand_dims(data, 0))
 
                 with torch.no_grad():
-                    pred = self.model((torch.unsqueeze(self.fe(eq(data, -20)), 0)))
+                    pred = self.model((torch.unsqueeze(self.fe(data), 0)))
                     # pred = self.model((torch.unsqueeze(data, 0)))
 
                 print(
@@ -200,5 +200,5 @@ class StreamPrediction:
 
 
 if __name__ == "__main__":
-    audio_stream = StreamPrediction("M5E_greek_clear")
+    audio_stream = StreamPrediction("M5_greek_clear")
     audio_stream.start_stream()

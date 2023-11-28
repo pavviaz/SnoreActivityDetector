@@ -10,9 +10,6 @@ from munch import munchify
 from multiprocess_funcs import compute_threads_work
 
 
-ERROR_LOG = "errors.txt"
-
-
 class WavExtractor:
     def __init__(self, config_path):
         with open(config_path) as c:
@@ -20,7 +17,20 @@ class WavExtractor:
 
         self.config = munchify(config)
 
-    def save_audio(self, video_path, lock):
+    def save_audio(self, video_path: str, lock: multiprocessing.Lock):
+        """
+        Extracts the audio from a video file and saves it as a WAV file.
+
+        Args:
+            video_path (str): The path to the video file
+            from which the audio will be extracted.
+            lock (multiprocessing.Lock): A lock object used
+            for thread synchronization.
+
+        Returns:
+            None: The extracted audio is saved as a WAV file,
+            but there is no direct output from the method.
+        """
         try:
             tmp_path = os.path.normpath(video_path)
             tmp_path = tmp_path.split(os.sep)
@@ -45,16 +55,44 @@ class WavExtractor:
 
         except Exception as e:
             with lock:
-                err = open(os.path.join(self.config.save_path, ERROR_LOG), "a")
+                err = open(
+                    os.path.join(self.config.save_path, self.config.error_log), "a"
+                )
                 err.write(f"ERROR: {e} with audio {video_path}\n")
                 err.close()
 
     def preprocess_and_save(self, dct, l, start, end):
+        """
+        Preprocesses a subset of the given
+        dictionary and saves the corresponding audio segments.
+
+        Args:
+            dct (dict): A dictionary containing audio segment data.
+            l (str): A label associated with the audio segments.
+            start (int): The starting index of the subset of data to be processed.
+            end (int): The ending index of the subset of data to be processed.
+
+        Returns:
+            None. The method processes a subset of
+            the data and saves the corresponding audio segments.
+        """
         dict_temp = dct[start:end]
         for path in tqdm(dict_temp):
             self.save_audio(path, l)
 
     def main(self, dataset):
+        """
+        Preprocesses and saves audio segments from a
+        given dataset in parallel using multiple threads.
+
+        Args:
+            dataset (list): A list of paths to video files
+            from which audio segments will be extracted and saved.
+
+        Returns:
+            None: The method parallelizes the preprocessing
+            and saving of audio segments from the dataset.
+        """
         lock = multiprocessing.Lock()
 
         threads = [
@@ -71,6 +109,16 @@ class WavExtractor:
             t.join()
 
     def extract_and_save(self):
+        """
+        Extracts audio from video files
+        and saves them as WAV files.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         folders = [
             os.path.join(self.config.data_path, el)
             for el in os.listdir(self.config.data_path)
@@ -89,5 +137,5 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    extractor = WavExtractor(args.config)
+    extractor = WavExtractor(args.config_path)
     extractor.extract_and_save()

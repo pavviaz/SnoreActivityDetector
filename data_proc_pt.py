@@ -60,19 +60,19 @@ def get_audio(audio, data_cfg, stride=64):
         audio = transform(audio)
         sample_rate = data_cfg.general.sample_rate
     
-    fe = FEATURES[data_cfg.general.feature_type]["cls"](
-        sample_rate=sample_rate,
-        win_length=ms2samples(data_cfg.general.win_len, sample_rate),
-        n_fft=data_cfg.general.n_fft,
-        hop_length=ms2samples(data_cfg.general.hop_len, sample_rate),
-        n_mels=data_cfg.general.n_mels,
-    )
+    # fe = FEATURES[data_cfg.general.feature_type]["cls"](
+    #     sample_rate=sample_rate,
+    #     win_length=ms2samples(data_cfg.general.win_len, sample_rate),
+    #     n_fft=data_cfg.general.n_fft,
+    #     hop_length=ms2samples(data_cfg.general.hop_len, sample_rate),
+    #     n_mels=data_cfg.general.n_mels,
+    # )
     
     audio = audio.permute(-1, -2)
 
     mel_audio = []
 
-    samples_per_square = ms2samples(data_cfg.general.mel_size, sample_rate)
+    samples_per_square = ms2samples(data_cfg.general.chunk_size, sample_rate)
     stride_samples = ms2samples(stride, sample_rate)
 
     # window loop
@@ -81,7 +81,7 @@ def get_audio(audio, data_cfg, stride=64):
         r_bound = l_bound+samples_per_square
         if r_bound > len(audio):
           break
-        mel = fe(audio[l_bound:r_bound, :].permute(-1, -2))
+        mel = audio[l_bound:r_bound, :].permute(-1, -2)
         mel_audio.append((mel, idx))
 
     return mel_audio

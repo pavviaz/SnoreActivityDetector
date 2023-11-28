@@ -1,5 +1,5 @@
 general:
-  model_name: "M5_greek_clear"
+  model_name: "VAD"
   description: 
 
   device: "cuda"
@@ -17,7 +17,7 @@ general:
   finetune_from:  # with new fc layer
   # restore_scheduler_state: True
 
-  seed: 
+  seed: 1234
 
 
 # if this key is specified, feature extraction procedure will be perfomed before training
@@ -25,11 +25,11 @@ prepare_dataset_conf:
 
 
 training:
-  model_to_use: "M5"  # docs ; multiple models
+  model_to_use: "M5E"  # docs ; multiple models
 
-  dataset_conf: "D:/SnoreFeatures_greek_clear/extraction_config.yaml"  # doesn't work if "prepare_dataset_conf" is specified
+  dataset_conf: "D:/SnoreFeatures_vad/extraction_config.yaml"  # doesn't work if "prepare_dataset_conf" is specified
 
-  epochs: 5
+  epochs: 50
   # batch_size: 256  # load everything and rearrange to this batch
 
   # add more loss funcs
@@ -41,7 +41,7 @@ training:
   optimizer:
     type: "adam"  # adamw, radam, sgd
     params:
-      lr: 0.0005
+      lr: 0.001
       weight_decay: 0.01
       betas:
       - 0.9
@@ -65,20 +65,5 @@ models_params:
   CB:
     ffn_dim: 64
     lstm_dim: 32
-  
-  CNNT:
-    transformer_d_model: 64
-    nhead: 4
-    transformer_dimforward: 512
-    transformer_dropout: 0.2
-    transformer_enc_num: 3
-
-  CA:
-    transformer_nhead: 4
-    transformer_dropout: 0.2
-    ffn_dim: 256
-
-  R1D:
-    stride: 16
 
   # write conf for other models

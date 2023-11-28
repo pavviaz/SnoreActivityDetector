@@ -88,6 +88,6 @@ class M5ENet(nn.Module):
 
 
 if __name__ == "__main__":
-    m5 = M5ENet()
+    m5 = M5ENet(stride=16, n_channel=40)
     out = m5(torch.rand(1, 1, 32000))
     print(out)

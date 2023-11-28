@@ -1,5 +1,5 @@
 general:
-  model_name: "M5_greek_clear"
+  model_name: "SAD_M5E_kaggle"
   description: 
 
   device: "cuda"
@@ -10,6 +10,7 @@ general:
 
   # add mixed precision training
   save_only_best: True
+  
   convert_to_fp16: 
 
   continue_from:  # with original fc layer
@@ -17,20 +18,17 @@ general:
   finetune_from:  # with new fc layer
   # restore_scheduler_state: True
 
-  seed: 
+  seed: 1234
 
-
-# if this key is specified, feature extraction procedure will be perfomed before training
-prepare_dataset_conf: 
+  export_path: "D:/exported_snore_models"
 
 
 training:
-  model_to_use: "M5"  # docs ; multiple models
+  model_to_use: "M5E"  # docs ; multiple models
 
-  dataset_conf: "D:/SnoreFeatures_greek_clear/extraction_config.yaml"  # doesn't work if "prepare_dataset_conf" is specified
+  dataset_path: "D:/SnoreFeatures_kaggle"
 
-  epochs: 5
-  # batch_size: 256  # load everything and rearrange to this batch
+  epochs: 20
 
   # add more loss funcs
   loss_func:
@@ -39,9 +37,9 @@ training:
       label_smoothing: 0
 
   optimizer:
-    type: "adam"  # adamw, radam, sgd
+    type: "adam"  # adamw
     params:
-      lr: 0.0005
+      lr: 0.001
       weight_decay: 0.01
       betas:
       - 0.9
@@ -65,20 +63,10 @@ models_params:
   CB:
     ffn_dim: 64
     lstm_dim: 32
-  
-  CNNT:
-    transformer_d_model: 64
-    nhead: 4
-    transformer_dimforward: 512
-    transformer_dropout: 0.2
-    transformer_enc_num: 3
 
   CA:
     transformer_nhead: 4
     transformer_dropout: 0.2
     ffn_dim: 256
-
-  R1D:
-    stride: 16
 
   # write conf for other models

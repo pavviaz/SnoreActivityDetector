@@ -96,22 +96,18 @@ class BackgroundNoise(Augmenter):
     def __init__(
         self,
         noise_path,
-        batch_size,
-        noise_max_samples,
         level=(0.05, 0.3),
         probability=1.0,
         device="cpu",
     ):
         super().__init__(probability)
-        # self.noise_list = self.load_noise(noise_path, batch_size, noise_max_samples)
         self.noises = noise_path
-        self.noise_max_samples = noise_max_samples
         self.level = level
         self.device = device
 
-    def load_noise(self, path, batch_size, max_samples):
-        def _load(path, max_samples):
-            impulse, _ = torchaudio.load(path, num_frames=max_samples)
+    def load_noise(self, path, batch_size, audio_samples):
+        def _load(path, audio_samples):
+            impulse, _ = torchaudio.load(path, num_frames=audio_samples)
 
             impulse = (
                 torch.mean(impulse, dim=0, keepdim=False)
@@ -119,8 +115,8 @@ class BackgroundNoise(Augmenter):
                 else impulse
             )
 
-            if impulse.shape[-1] < max_samples:
-                impulse = F.pad(impulse, (0, max_samples - impulse.shape[-1]))
+            if impulse.shape[-1] < audio_samples:
+                impulse = F.pad(impulse, (0, audio_samples - impulse.shape[-1]))
 
             return impulse.numpy()
 
@@ -131,7 +127,7 @@ class BackgroundNoise(Augmenter):
         np.random.shuffle(noise_list)
         return np.array(
             [
-                _load(os.path.join(path, el), max_samples)
+                _load(os.path.join(path, el), audio_samples)
                 for el in noise_list[:batch_size]
             ]
         )
@@ -147,7 +143,7 @@ class BackgroundNoise(Augmenter):
             self.level[0], self.level[1], (bs, 1, 1)
         ).astype(np.float32)
 
-        self.noise_list = self.load_noise(self.noises, bs, self.noise_max_samples)
+        self.noise_list = self.load_noise(self.noises, bs, inputs.shape[-1])
         np.random.shuffle(self.noise_list)
         noise_list = torch.tensor(self.noise_list, device=self.device)
 

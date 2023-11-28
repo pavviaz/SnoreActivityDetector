@@ -14,3 +14,4 @@ if __name__ == "__main__":
 
     trainer = ModelManager(args.config_path)
     trainer.train()
+    trainer.export_jit_model()

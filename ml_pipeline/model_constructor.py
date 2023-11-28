@@ -46,7 +46,7 @@ class ModelFeatured(nn.Module):
         self.data_cfg = data_cfg
 
     def forward(self, inputs):
-        norm_inp = self.norm(inputs, self.data_cfg.general.use_equalization)
+        norm_inp = self.norm(inputs, target_dbfs=self.data_cfg.general.use_equalization)
 
         features = self.fe(norm_inp)
 

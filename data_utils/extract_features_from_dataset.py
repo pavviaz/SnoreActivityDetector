@@ -3,16 +3,17 @@ import json
 import multiprocessing
 import os
 import shutil
-from collections import ChainMap
+from collections import defaultdict
 from itertools import chain
 from os.path import join
+from random import choice
 
 import numpy as np
 import soundfile as sf
 import torch
 import torchaudio
 import yaml
-from munch import munchify
+from munch import munchify, Munch
 from tqdm import tqdm
 
 from feature_extractors.main_fe import MFCC_FE, MelSpec_FE, Raw_FE
@@ -48,33 +49,6 @@ AUGMENTATIONS = {
 }
 
 
-class ZipIterator:
-    def __init__(self, list_1=[], list_2=[]):
-        assert len(list_1) == len(list_1)
-
-        self.list_1 = list_1
-        self.list_2 = list_2
-        self.current = -1
-
-    def update(self, list_1, list_2):
-        assert len(list_1) == len(list_1)
-
-        self.list_1.extend(list_1)
-        self.list_2.extend(list_2)
-
-    def __len__(self):
-        return len(self.list_1)
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        self.current += 1
-        if self.current < len(self.list_1):
-            return self.list_1[self.current], self.list_2[self.current]
-        raise StopIteration
-
-
 class FeatureExtractor:
     def __init__(self, config_path):
         with open(config_path) as c:
@@ -82,57 +56,93 @@ class FeatureExtractor:
 
         self.config = config
 
-    def ms2samples(self, ms, sample_rate):
+    def ms2samples(self, ms: int, sample_rate: int):
+        """
+        Converts milliseconds to samples with desired sample rate
+
+        Args:
+            ms (int): milliseconds to convert
+            sample_rate (int): desired sample rate
+
+        Returns:
+            int: samples
+        """
         return int(ms * sample_rate / 1000)
 
-    def sec2ms(self, sec):
+    def sec2ms(self, sec: float):
+        """
+        Converts seconds to milliseconds
+
+        Args:
+            sec (float): seconds to convert
+
+        Returns:
+            int: milliseconds
+        """
         return int(1000 * sec)
 
-    def range_generator(self, start, end):
+    def ms2sec(self, ms: int):
+        """
+        Converts milliseconds to seconds
+
+        Args:
+            ms (int): milliseconds to convert
+
+        Returns:
+            float: seconds
+        """
+        return ms / 1000
+
+    def range_generator(self, start: int, end: int):
+        """
+        Generates a sequence of start and end indices based on
+        the given start and end values, sample size, and stride.
+
+        Args:
+            start (int): The starting index of the range.
+            end (int): The ending index of the range.
+
+        Yields:
+            tuple: A tuple containing the start and end
+            indices for each interval in the range.
+        """
         cnt = (end - start - self.samples_per_square) // self.stride
         for k in range(cnt + 1):
-            yield (
-                s := start + self.stride * k
-            ), s + self.samples_per_square  # python 3.8+
+            yield (s := start + self.stride * k), s + self.samples_per_square
 
     def extractor(self, meta_info, source_audio):
-        if "trim_silence" in meta_info.augs:
-            meta_info.augs.remove("trim_silence")
-            trimmer = self.get_augsequence(["trim_silence"])
-            source_audio = torch.squeeze(trimmer(source_audio), 0)
+        """
+        Process audio data by applying
+        augmentations and extracting features.
 
-        start, end = 0, source_audio.shape[-1]
+        Args:
+            meta_info (Munch): Information about the audio data,
+            including the label and augmentations to apply.
+            source_audio (torch.Tensor): The raw audio data to process.
 
-        rng = self.range_generator(start, end)
-        for fr, to in rng:
-            if self.general_params.limit_for_class:
-                if hasattr(self, "limiter"):
-                    if self.f_cnt[meta_info.label] >= self.limiter:
-                        return
-                elif (
-                    meta_info.label != self.general_params.limit_for_class
-                    and self.f_cnt[meta_info.label]
-                    >= self.f_cnt[self.general_params.limit_for_class]
-                ):
-                    return
-            interval = source_audio[:, fr:to]
-            augs = self.get_augsequence(meta_info.augs)
-            augm_interval = augs(torch.unsqueeze(interval, 0))
+        Returns:
+            None: The processed features
+            are saved as numpy arrays.
+        """
+        rng = self.range_generator(0, source_audio.shape[-1])
+        for s, e in rng:
+            if self.limiter and self.f_cnt[meta_info.label] >= self.limiter:
+                return
+
+            interval = source_audio[:, s:e]
+            augm_interval = meta_info.augs(torch.unsqueeze(interval, 0))
             augm_interval = torch.squeeze(augm_interval, 0).cpu()
 
             if torch.sum(torch.isnan(augm_interval)):
                 return
 
-            try:
-                features = self.transform(augm_interval).numpy().astype(np.float32)
-            except Exception as e:
-                print(meta_info, end)
-                raise e
+            features = self.transform(augm_interval).numpy().astype(np.float32)
+
             self.feat_buff.append((features, self.training_labels[meta_info.label]))
 
             self.f_cnt[meta_info.label] += 1
 
-            if len(self.feat_buff) == self.general_params.batch_size:
+            if len(self.feat_buff) == self.main_cfg.batch_size:
                 batch_file_name = f"batch_{os.getpid()}_{self.f_c}.npy"
                 np.save(
                     join(self.features_dir, batch_file_name),
@@ -144,59 +154,35 @@ class FeatureExtractor:
                 self.f_c += 1
                 self.feat_buff.clear()
 
-    def match_target_amplitude(self, sound, target_dBFS):
-        change_in_dBFS = target_dBFS - sound.dBFS
-        return sound.apply_gain(change_in_dBFS)
+    def file_load_and_proceed(self, label_file: list, start: int, stop: int):
+        """
+        Load audio files, apply transformations,
+        and extract features from the audio data.
 
-    def file_load_and_proceed(self, label_file, start, stop):
+        Args:
+            label_file (list): A list of labeled audio files.
+            start (int): The starting index of
+            the subset of label_file to process.
+            stop (int): The ending index of
+            the subset of label_file to process.
+
+        Returns:
+            None: The processed features are saved as numpy arrays.
+        """
         curr_label_file = label_file[start:stop]
         np.random.shuffle(curr_label_file)
-        curr_label_file = dict(ChainMap(*curr_label_file))
 
-        data_iterator = ZipIterator()
         self.f_cnt = {k: 0 for k in self.training_labels}
-        if self.general_params.limit_for_class:
-            if isinstance(self.general_params.limit_for_class, int):
-                self.limiter = self.general_params.limit_for_class // self.threads
 
-            elif isinstance(self.general_params.limit_for_class, str):
-                for k, v in curr_label_file.items():
-                    strict_r = list(
-                        filter(
-                            lambda x: x.label == self.general_params.limit_for_class, v
-                        )
-                    )
-                    if len(strict_r):
-                        [v.remove(el) for el in strict_r]
-                        data_iterator.update([k] * len(strict_r), strict_r)
+        self.limiter = 0
+        if "limit_for_class" in self.main_cfg:
+            self.limiter = self.main_cfg.limit_for_class // self.threads
 
-                curr_label_file = {k: v for k, v in curr_label_file.items() if v}
-            else:
-                raise Exception(
-                    "Wrong limitation type. \
-                                Limiting with one of the labels or with int are only possibilities"
-                )
-
-        [data_iterator.update([k] * len(v), v) for k, v in curr_label_file.items()]
-
-        for path, meta in tqdm(data_iterator):
-            if hasattr(self, "limiter"):
-                if self.f_cnt[meta.label] >= self.limiter:
-                    continue
-            elif (
-                meta.label != self.general_params.limit_for_class
-                and self.f_cnt[meta.label]
-                >= self.f_cnt[self.general_params.limit_for_class]
-            ):
+        for rec in tqdm(curr_label_file):
+            if self.limiter and self.f_cnt[rec.label] >= self.limiter:
                 continue
 
-            if not "__silence__" in path:
-                source_audio, sample_rate = torchaudio.load(path)
-            else:
-                # source_audio, sample_rate = torchaudio.load(
-                #     r"C:\Users\shace\Documents\GitHub\snore_detector\SnoreActivityDetector\data_utils\tests\greek_mic_noise.wav"
-                # )
-                source_audio, sample_rate = torch.zeros(1, self.general_params.stride), self.general_params.sample_rate
+            source_audio, sample_rate = torchaudio.load(rec.audio_path)
             source_audio = source_audio.to(self.device)
 
             if source_audio.shape[-1] < self.samples_per_square:
@@ -208,19 +194,18 @@ class FeatureExtractor:
                 else source_audio
             )
 
-            if sample_rate != self.general_params.sample_rate:
+            if sample_rate != self.main_cfg.sample_rate:
                 transform = torchaudio.transforms.Resample(
-                    sample_rate, self.general_params.sample_rate
+                    sample_rate, self.main_cfg.sample_rate
                 ).to(self.device)
                 source_audio = transform(source_audio)
 
-            f, t = [
-                self.ms2samples(self.sec2ms(el), self.general_params.sample_rate)
-                for el in meta.from_to
-            ]
-            t = source_audio.shape[-1] if t > source_audio.shape[-1] else t
+            s = self.ms2samples(self.sec2ms(rec.start), self.main_cfg.sample_rate)
+            e = self.ms2samples(self.sec2ms(rec.end), self.main_cfg.sample_rate)
 
-            self.extractor(meta, source_audio[:, f:t])
+            e = source_audio.shape[-1] if e > source_audio.shape[-1] else e
+
+            self.extractor(rec, source_audio[:, s:e])
 
         if len(self.feat_buff):
             batch_file_name = f"part_batch_{os.getpid()}_{self.f_c}.npy"
@@ -231,6 +216,14 @@ class FeatureExtractor:
             self.feat_buff.clear()
 
     def part_batch_combiner(self):
+        """
+        Combines partial batches of feature data
+        into larger batches for further processing.
+
+        Returns:
+            None: The partial batches are combined into
+            larger batches and saved as separate files.
+        """
         file_list = filter(lambda x: "part" in x, os.listdir(self.features_dir))
         batch_buff = []
         for idx, file in enumerate(file_list):
@@ -238,16 +231,16 @@ class FeatureExtractor:
 
             batch_sum = sum([el.shape[0] for el in batch_buff])
             arr = np.load(file_path, allow_pickle=True)
-            if batch_sum + arr.shape[0] <= self.general_params.batch_size:
+            if batch_sum + arr.shape[0] <= self.main_cfg.batch_size:
                 batch_buff.append(arr)
             else:
-                batch_buff.append(arr[: self.general_params.batch_size - batch_sum])
+                batch_buff.append(arr[: self.main_cfg.batch_size - batch_sum])
                 np.save(
                     join(self.features_dir, f"combined_batch_{idx}.npy"),
                     np.concatenate(batch_buff),
                 )
                 batch_buff.clear()
-                batch_buff.append(arr[self.general_params.batch_size - batch_sum :])
+                batch_buff.append(arr[self.main_cfg.batch_size - batch_sum :])
 
             os.remove(file_path)
         if len(batch_buff):
@@ -257,11 +250,15 @@ class FeatureExtractor:
             )
 
     def shuffle_batches(self):
+        """
+        Shuffles batches of feature data stored
+        as numpy arrays in a directory.
+        """
         files = os.listdir(self.features_dir)
         np.random.shuffle(files)
 
         f_idx = 0
-        t_idx = self.general_params.shuffle_window
+        t_idx = self.main_cfg.shuffle_window
 
         while f_idx < len(files):
             window = files[f_idx:t_idx]
@@ -292,26 +289,27 @@ class FeatureExtractor:
 
             print(f"{t_idx} of {len(files)} files shuffled")
 
-            f_idx += self.general_params.shuffle_hop
-            t_idx += self.general_params.shuffle_hop
+            f_idx += self.main_cfg.shuffle_hop
+            t_idx += self.main_cfg.shuffle_hop
             print("-----------------------")
 
-    def get_audio_len(self, el, label):
-        metainf = list(filter(lambda x: x.label == label, el))
-        if not metainf:
-            return 0
+    def get_augsequence(self, augs: list):
+        """
+        Returns an instance of the AugSequence class,
+        which applies a sequence of augmentations to audio data.
 
-        duration = 0
-        for m in metainf:
-            start, end = m.from_to
-            duration += end - start
-        return duration
+        Args:
+            augs (list): A list of augmentation
+            names to be applied to the audio data.
 
-    def get_augsequence(self, augs):
+        Returns:
+            AugSequence instance: An instance of the AugSequence class,
+            which can be used to apply the specified augmentations to audio data.
+        """
         return AugSequence(
             [
                 AUGMENTATIONS[aug](
-                    **self.general_params.augmentations_config[aug], device=self.device
+                    **self.main_cfg.augmentations_config[aug], device=self.device
                 )
                 for aug in augs
             ]
@@ -325,9 +323,17 @@ class FeatureExtractor:
                 return k
 
     def train_validation_test_split(self):
-        train_dir = os.path.join(self.features_dir, self.general_params.train_folder)
-        val_dir = os.path.join(self.features_dir, self.general_params.val_folder)
-        test_dir = os.path.join(self.features_dir, self.general_params.test_folder)
+        """
+        Split the feature files into three directories:
+        train, validation, and test.
+
+        Returns:
+            None. The files are moved into the
+            train, validation, and test directories.
+        """
+        train_dir = os.path.join(self.features_dir, self.main_cfg.train_folder)
+        val_dir = os.path.join(self.features_dir, self.main_cfg.val_folder)
+        test_dir = os.path.join(self.features_dir, self.main_cfg.test_folder)
         os.makedirs(train_dir, exist_ok=True)
         os.makedirs(val_dir, exist_ok=True)
         os.makedirs(test_dir, exist_ok=True)
@@ -337,9 +343,9 @@ class FeatureExtractor:
         )
         files = list(filter(os.path.isfile, files))
 
-        train_ratio = int(len(files) * self.general_params.train_val_split[0] / 100)
+        train_ratio = int(len(files) * self.main_cfg.train_val_split[0] / 100)
         val_ratio = (
-            int(len(files) * self.general_params.train_val_split[1] / 100) + train_ratio
+            int(len(files) * self.main_cfg.train_val_split[1] / 100) + train_ratio
         )
         test_ratio = len(files)
         self.dir_map = {
@@ -351,33 +357,63 @@ class FeatureExtractor:
         np.random.shuffle(files)
         [shutil.move(el, self.is_between(idx)) for idx, el in enumerate(files)]
 
-    def audio_chunks_amount(self, length):
-        return (length - self.general_params.mel_size // 1000) // (
-            self.general_params.stride / 1000
+    def audio_chunks_amount(self, duration: int):
+        """
+        Calculate the number of audio chunks
+        that can be extracted from a given duration.
+
+        Args:
+            duration (int): The duration of
+            the audio in milliseconds.
+
+        Returns:
+            float: The number of audio chunks
+            that can be extracted from the given duration.
+        """
+        return (duration - self.main_cfg.chunk_size // 1000) // (
+            self.main_cfg.stride / 1000
         ) + 1
 
     def extract_features(self):
-        self.general_params = munchify(self.config[GENERAL_PARAMS])
-        self.device = "cuda" if self.general_params.use_gpu else "cpu"
+        """
+        Main extraction function:
+        1) Processes the configuration data and creates a dataset of audio
+        samples with their corresponding labels and augmentation settings.
+        2) Performs various operations to extract features from audio data,
+        including counting the number of chunks for each label,
+        adding silence samples to the dataset, shuffling the dataset,
+        setting up feature extraction parameters,
+        and running feature extraction in parallel using multiple threads
+        """
+
+        def get_munch_audio(audio_path, label, start, end, augs=None):
+            return Munch(
+                audio_path=audio_path,
+                label=self.labels_merging.get(label, label),
+                start=start,
+                end=end,
+                augs=self.get_augsequence(augs) if augs else self.augm_dict[label],
+            )
+
+        self.main_cfg = munchify(self.config[GENERAL_PARAMS])
+        self.device = "cuda" if self.main_cfg.use_gpu else "cpu"
 
         data_keys = list(self.config.keys())
         data_keys.remove(GENERAL_PARAMS)
         if not len(data_keys):
-            raise Exception("No data points in config")
+            raise ValueError("No data points in config")
 
-        dataset = {}
+        dataset = []
         for data_p in data_keys:
             data_info = munchify(self.config[data_p])
-            if not os.path.exists(data_info.path):
-                raise Exception(f"{data_info.path} directory doesn't exist")
 
-            if not len(list(filter(len, data_info.tokens))):
-                raise Exception(f"No tokens specified for {data_p}")
+            if not os.path.exists(data_info.path):
+                raise OSError(f"{data_info.path} directory doesn't exist")
 
             if not os.path.exists(data_info.path) or not len(
                 os.listdir(data_info.path)
             ):
-                raise Exception(f"Data directory does not exits or empty for {data_p}")
+                raise OSError(f"Data directory does not exits or empty for {data_p}")
             dir_content = os.listdir(data_info.path)
 
             if len(data_info.augmentations) != len(data_info.tokens):
@@ -394,27 +430,27 @@ class FeatureExtractor:
             ):
                 raise Exception(f"Some wrong augmentations are specified")
 
-            if self.general_params.use_equalization:
+            if "use_equalization" in self.main_cfg:
+                self.main_cfg.augmentations_config.equalize_amplitude = Munch(
+                    target_dBFS=self.main_cfg.use_equalization, probability=1.0
+                )
                 [el.append("equalize_amplitude") for el in data_info.augmentations]
 
-            augm_dict = {
-                k: v for k, v in zip(data_info.tokens, data_info.augmentations)
+            self.augm_dict = {
+                k: self.get_augsequence(v)
+                for k, v in zip(data_info.tokens, data_info.augmentations)
             }
 
-            if (
-                not data_info.strict_token
-                and data_info.label_file
-                and data_info.audio_folder
-            ):
+            if "label_file" in data_info and "audio_folder" in data_info:
                 if (
                     not data_info.label_file in dir_content
                     or not data_info.audio_folder in dir_content
                 ):
-                    raise Exception(f"No label file or audio directory for {data_p}")
+                    raise OSError(f"No label file or audio directory for {data_p}")
 
                 try:
                     t_dataset = json.load(
-                        open(join(data_info.path, data_info.label_file), "r")
+                        open(join(data_info.path, data_info.label_file))
                     )
                     t_dataset = {
                         k: list(
@@ -427,135 +463,135 @@ class FeatureExtractor:
                     if not len(t_dataset):
                         raise Exception("Wrong labels are specified")
 
-                    t_dataset = {
-                        os.path.join(data_info.path, data_info.audio_folder, k): list(
-                            map(lambda x: x + [augm_dict[x[0]]], v)
-                        )
-                        for k, v in t_dataset.items()
-                    }
+                    self.labels_merging = {token: token for token in data_info.tokens}
+                    if "labels_merging" in self.main_cfg:
+                        self.labels_merging.update(self.main_cfg.labels_merging)
 
-                    dataset.update(t_dataset)
+                    for audio_name, labels in t_dataset.items():
+                        dataset.extend(
+                            [
+                                get_munch_audio(
+                                    audio_path=os.path.join(
+                                        data_info.path,
+                                        data_info.audio_folder,
+                                        audio_name,
+                                    ),
+                                    label=l[0],
+                                    start=l[1][0],
+                                    end=l[1][1],
+                                )
+                                for l in labels
+                                if self.sec2ms(l[1][1] - l[1][0])
+                                >= self.main_cfg.chunk_size
+                            ]
+                        )
+
                 except Exception as e:
                     raise e
 
-            elif data_info.strict_token:
+            else:
                 if len(data_info.tokens) > 1:
                     raise Exception("Only one token for not labeled data is available")
 
-                t_dataset = {}
+                self.labels_merging = {token: token for token in data_info.tokens}
+                if "labels_merging" in self.main_cfg:
+                    self.labels_merging.update(self.main_cfg.labels_merging)
+
                 for audio in os.listdir(data_info.path):
                     audio_path = os.path.join(data_info.path, audio)
-
                     audio = sf.SoundFile(audio_path)
-                    t_dataset.update(
-                        {
-                            audio_path: [
-                                [
-                                    data_info.strict_token,
-                                    [0.0, np.round(len(audio) / audio.samplerate, 1)],
-                                    augm_dict[data_info.strict_token],
-                                ]
-                            ]
-                        }
+
+                    duration = np.round(len(audio) / audio.samplerate, 1)
+                    if self.sec2ms(duration) >= self.main_cfg.chunk_size:
+                        dataset.append(
+                            get_munch_audio(
+                                audio_path=audio_path,
+                                label=data_info.tokens[0],
+                                start=0.0,
+                                end=duration,
+                            )
+                        )
+
+        chunks_counter = defaultdict(int)
+        for el in dataset:
+            chunks_counter[el.label] += self.audio_chunks_amount(el.end - el.start)
+
+        if "use_silence" in self.main_cfg:
+            noises = os.listdir(self.main_cfg.use_silence.silence_path)
+            if not noises:
+                raise OSError("Noise examples directory is empty")
+
+            [
+                dataset.append(
+                    get_munch_audio(
+                        audio_path=join(
+                            self.main_cfg.use_silence.silence_path, choice(noises)
+                        ),
+                        label="__silence__",
+                        start=0.0,
+                        end=self.ms2sec(self.main_cfg.chunk_size),
+                        augs=self.main_cfg.use_silence.augmentations,
                     )
-
-                dataset.update(t_dataset)
-
-            else:
-                raise Exception("Config error")
-
-        merging_dict = None
-        if hasattr(self.general_params, "labels_merging"):
-            merging_dict = dict(self.general_params.labels_merging)
-            self.general_params.training_tokens = list(set(merging_dict.values())) + [
-                el
-                for el in self.general_params.training_tokens
-                if el not in merging_dict
+                )
+                for _ in range(
+                    int(
+                        self.main_cfg.use_silence.ratio
+                        * chunks_counter[self.main_cfg.training_tokens[-1]]
+                    )
+                )
             ]
 
-        if self.general_params.include_silence:
-            positive_chunks = 0
-            for params in dataset.values():
-                for p in params:
-                    if p[0] == self.general_params.training_tokens[-1]:
-                        positive_chunks += self.audio_chunks_amount(p[1][1] - p[1][0])
+            self.main_cfg.training_tokens.insert(0, "__silence__")
 
-            dataset.update(
-                {
-                    f"__silence__{str(i)}": [
-                        [
-                            "__silence__",
-                            [0, self.general_params.stride / 1000],
-                            ["gaussian_noise", "background_noise"],
-                        ]
-                    ]
-                    for i in range(
-                        int(self.general_params.include_silence * positive_chunks)
-                    )
-                }
+        tokens_diff = set(chunks_counter.keys()) - set(self.main_cfg.training_tokens)
+        if tokens_diff:
+            raise ValueError(
+                f"There are tokens in data, that are not \
+                presented in training tokens:\n{tokens_diff}"
             )
-            self.general_params.training_tokens.insert(0, "__silence__")
 
         self.training_labels = {
-            v: idx for idx, v in enumerate(self.general_params.training_tokens)
+            v: idx for idx, v in enumerate(self.main_cfg.training_tokens)
         }
 
-        dataset = {
-            k: list(
-                map(
-                    lambda x: munchify(
-                        {
-                            "label": merging_dict.get(x[0], x[0])
-                            if merging_dict
-                            else x[0],
-                            "from_to": x[1],
-                            "augs": x[2],
-                        }
-                    ),
-                    v,
-                )
-            )
-            for k, v in dataset.items()
-        }
-
-        dataset = [{item[0]: item[1]} for item in dataset.items()]
         np.random.shuffle(dataset)
 
-        self.features_dir = self.general_params.output_path
+        self.features_dir = self.main_cfg.output_path
 
         os.makedirs(self.features_dir, exist_ok=False)
 
         self.samples_per_square = self.ms2samples(
-            self.general_params.mel_size, self.general_params.sample_rate
+            self.main_cfg.chunk_size, self.main_cfg.sample_rate
         )
-        self.win_len = self.ms2samples(
-            self.general_params.win_len, self.general_params.sample_rate
-        )
-        self.n_fft = self.general_params.n_fft
-        self.hop_len = self.ms2samples(
-            self.general_params.hop_len, self.general_params.sample_rate
-        )
+        self.win_len = self.ms2samples(self.main_cfg.win_len, self.main_cfg.sample_rate)
+        self.n_fft = self.main_cfg.n_fft
+        self.hop_len = self.ms2samples(self.main_cfg.hop_len, self.main_cfg.sample_rate)
 
-        self.stride = self.ms2samples(
-            self.general_params.stride, self.general_params.sample_rate
-        )
+        self.stride = self.ms2samples(self.main_cfg.stride, self.main_cfg.sample_rate)
 
         self.feat_buff = []
         self.f_c = 0
 
-        self.transform = FEATURE_TYPES[self.general_params.feature_type](
-            sample_rate=self.general_params.sample_rate,
+        self.transform = FEATURE_TYPES[self.main_cfg.feature_type](
+            sample_rate=self.main_cfg.sample_rate,
             win_length=self.win_len,
             n_fft=self.n_fft,
             hop_length=self.hop_len,
-            n_mels=self.general_params.n_mels,
+            n_mels=self.main_cfg.n_mels,
         )
 
-        self.threads = (
-            self.general_params.compute_threads
-            if not self.general_params.use_gpu
-            else 1
-        )
+        if "limit_for_class" in self.main_cfg:
+            if isinstance(self.main_cfg.limit_for_class, str):
+                self.main_cfg.limit_for_class = chunks_counter[
+                    self.main_cfg.limit_for_class
+                ]
+            elif not isinstance(self.main_cfg.limit_for_class, int):
+                raise ValueError(
+                    "Wrong limitation type. \
+                    Limiting with one of the labels or with int are only possibilities"
+                )
+
+        self.threads = self.main_cfg.compute_threads if not self.main_cfg.use_gpu else 1
         multiprocessing.set_start_method("spawn")
         threads = [
             multiprocessing.Process(
@@ -571,8 +607,8 @@ class FeatureExtractor:
         self.part_batch_combiner()
         self.shuffle_batches()
         if (
-            all(0 < el < 100 for el in self.general_params.train_val_split)
-            and sum(self.general_params.train_val_split) < 100
+            all(0 < el < 100 for el in self.main_cfg.train_val_split)
+            and sum(self.main_cfg.train_val_split) < 100
         ):
             self.train_validation_test_split()
 
