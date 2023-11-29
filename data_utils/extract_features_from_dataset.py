@@ -468,14 +468,15 @@ class FeatureExtractor:
                         self.labels_merging.update(self.main_cfg.labels_merging)
 
                     for audio_name, labels in t_dataset.items():
+                        audio_path = os.path.join(
+                            data_info.path,
+                            data_info.audio_folder,
+                            audio_name,
+                        )
                         dataset.extend(
                             [
                                 get_munch_audio(
-                                    audio_path=os.path.join(
-                                        data_info.path,
-                                        data_info.audio_folder,
-                                        audio_name,
-                                    ),
+                                    audio_path,
                                     label=l[0],
                                     start=l[1][0],
                                     end=l[1][1],
@@ -483,6 +484,7 @@ class FeatureExtractor:
                                 for l in labels
                                 if self.sec2ms(l[1][1] - l[1][0])
                                 >= self.main_cfg.chunk_size
+                                and os.path.exists(audio_path)
                             ]
                         )
 
