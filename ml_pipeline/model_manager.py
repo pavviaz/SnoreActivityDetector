@@ -41,11 +41,11 @@ class ModelManager:
         Initialize the ModelManager object.
 
         Args:
-            config_path (str, optional): Path to the configuration file. 
+            config_path (str, optional): Path to the configuration file.
             Defaults to None.
-            model_name (str, optional): Name of the pre-trained model. 
+            model_name (str, optional): Name of the pre-trained model.
             Defaults to None.
-            default_mlflow_host (str, optional): Default MLflow host URL. 
+            default_mlflow_host (str, optional): Default MLflow host URL.
             Defaults to "http://127.0.0.1:5000".
 
         Returns:
@@ -140,15 +140,15 @@ class ModelManager:
     @staticmethod
     def __enable_gpu(device):
         """
-        Determine whether a GPU is available 
+        Determine whether a GPU is available
         and return the appropriate device string.
 
         Args:
-        - device (string): The device string to 
+        - device (string): The device string to
         check for GPU availability.
 
         Returns:
-        - device (string): The device string 
+        - device (string): The device string
         indicating whether a GPU is available or not.
         """
 
@@ -158,15 +158,15 @@ class ModelManager:
 
     def __config_reader(self, config_path):
         """
-        Read a YAML configuration file and 
+        Read a YAML configuration file and
         return its contents as a Python dictionary.
 
         Args:
-            config_path (str): The path to the 
+            config_path (str): The path to the
             YAML configuration file.
 
         Returns:
-            dict: The contents of the YAML 
+            dict: The contents of the YAML
             configuration file as a Python dictionary.
         """
         if not os.path.exists(config_path):
@@ -180,7 +180,7 @@ class ModelManager:
 
     def __invoke_exception(self, msg, exc):
         """
-        Logs an error message, ends the 
+        Logs an error message, ends the
         current MLflow run, and raises an exception.
 
         Args:
@@ -188,7 +188,7 @@ class ModelManager:
             exc (Exception): The exception class to be raised.
 
         Raises:
-            Exception: The specified exception class 
+            Exception: The specified exception class
             with the error message as the argument.
         """
         self.logger.error(msg)
@@ -198,16 +198,16 @@ class ModelManager:
 
     def __check_config(self, _dict):
         """
-        Recursively checks if all values 
+        Recursively checks if all values
         in a nested dictionary are specified.
 
         Args:
-        - _dict (dict): A nested 
+        - _dict (dict): A nested
         dictionary to check for missing values.
 
         Returns:
-        - None: The method does not return any value. 
-        It either completes successfully or 
+        - None: The method does not return any value.
+        It either completes successfully or
         raises a `ValueError` if a value is missing.
         """
         for k, v in _dict.items():
@@ -219,7 +219,7 @@ class ModelManager:
 
     def __seed_everything(self):
         """
-        Set the random seed for 
+        Set the random seed for
         reproducibility in the training process.
 
         Args:
@@ -236,7 +236,7 @@ class ModelManager:
 
     def __load_model(self, name):
         """
-        Load a pre-trained model from 
+        Load a pre-trained model from
         MLflow based on the provided model name.
 
         Args:
@@ -270,8 +270,8 @@ class ModelManager:
         """
         Log essential files and information to MLflow.
 
-        This method logs the flattened configuration 
-        parameters, the configuration dictionaries, 
+        This method logs the flattened configuration
+        parameters, the configuration dictionaries,
         and various source code files related to the training process.
 
         :return: None
@@ -297,16 +297,16 @@ class ModelManager:
 
     def __log_all_metrics(self, stage, ep, step, all_steps, preserve=False):
         """
-        Logs all the metrics and the 
+        Logs all the metrics and the
         confusion matrix during the training process.
 
         Args:
-            stage (str): The current stage of 
+            stage (str): The current stage of
             the training process (e.g., "train", "val").
             ep (int): The current epoch number.
             step (int): The current step number.
             all_steps (int): The total number of steps.
-            preserve (bool, optional): A flag indicating whether to 
+            preserve (bool, optional): A flag indicating whether to
             preserve the metrics or not. Defaults to False.
 
         Returns:
@@ -345,13 +345,13 @@ class ModelManager:
         Perform a single training step for the model.
 
         Args:
-            img_tensor (torch.Tensor): The input tensor 
+            img_tensor (torch.Tensor): The input tensor
             for the training step.
-            target (torch.Tensor): The target tensor 
+            target (torch.Tensor): The target tensor
             for the training step.
 
         Returns:
-            None. The method performs the training step and 
+            None. The method performs the training step and
             updates the model parameters and metrics tracker.
         """
         img_tensor, target = img_tensor.type(torch.float32).to(
@@ -375,13 +375,13 @@ class ModelManager:
         Perform a single validation step for the model.
 
         Args:
-            img_tensor (torch.Tensor): The input tensor 
+            img_tensor (torch.Tensor): The input tensor
             for the validation step.
-            target (torch.Tensor): The target tensor 
+            target (torch.Tensor): The target tensor
             for the validation step.
 
         Returns:
-            None. The method performs the validation step and 
+            None. The method performs the validation step and
             updates the metrics tracker.
         """
         img_tensor, target = img_tensor.type(torch.float32).to(
@@ -598,12 +598,12 @@ class ModelManager:
                 text=self.log_str.getvalue(), artifact_file="training_log.txt"
             )
 
-    def export_jit_model(self):
+    def export_jit_model(self, path: str = None):
         """
         Exports a PyTorch model to a JIT (Just-in-Time) format for deployment.
 
         Args:
-            None
+            path (str): Saving dir path
 
         Returns:
             None
@@ -616,9 +616,10 @@ class ModelManager:
 
         traced_model = torch.jit.trace(self.model, dummy_inp)
 
-        os.makedirs(self.cfg.general.export_path, exist_ok=True)
+        ex_path = path if path else self.cfg.general.export_path
+        os.makedirs(ex_path, exist_ok=True)
         save_path = os.path.join(
-            os.path.normpath(self.cfg.general.export_path),
+            os.path.normpath(ex_path),
             f"{self.cfg.general.model_name}.pt",
         )
         traced_model.save(save_path)
