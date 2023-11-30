@@ -22,7 +22,7 @@ TMP_LABELS_FILE = "tmp_labels.txt"
 
 class DataDownloader:
     def __init__(self, config_path: str):
-        with open(config_path) as c:
+        with open(config_path, encoding='utf-8') as c:
             config = yaml.load(c, Loader=yaml.FullLoader)
 
         self.config = munchify(config)

@@ -173,7 +173,7 @@ class ModelManager:
             error_msg = f"Config file on {config_path} path does not exist"
             self.__invoke_exception(error_msg, OSError)
 
-        with open(config_path) as c:
+        with open(config_path, encoding='utf-8') as c:
             config = yaml.load(c, Loader=yaml.FullLoader)
 
         return config
@@ -614,7 +614,7 @@ class ModelManager:
 
         dummy_inp = torch.rand(*self.input_shape)
 
-        traced_model = torch.jit.trace(self.model, dummy_inp)
+        traced_model = torch.jit.trace(f_model, dummy_inp)
 
         ex_path = path if path else self.cfg.general.export_path
         os.makedirs(ex_path, exist_ok=True)

@@ -51,7 +51,7 @@ AUGMENTATIONS = {
 
 class FeatureExtractor:
     def __init__(self, config_path):
-        with open(config_path) as c:
+        with open(config_path, encoding='utf-8') as c:
             config = yaml.load(c, Loader=yaml.FullLoader)
 
         self.config = config
