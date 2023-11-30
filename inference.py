@@ -2,10 +2,13 @@ import json
 import os
 import time
 from collections import defaultdict
+import argparse
 
 import numpy as np
 import torch
 from pydub import AudioSegment
+import yaml
+from munch import munchify
 
 from data_processing import dataset_from_audio
 
@@ -13,63 +16,23 @@ from data_processing import dataset_from_audio
 class SnoreInference:
     def __init__(
         self,
-        ckpt_path: str,
-        sample_rate: int,
-        chunk_size: int,
-        mean_overlaps: bool,
-        threshold: int,
-        stride: int,
-        generate_clear_audio: str = None,
-        include_probs: bool = False,
-        label_path: str = "output/",
-        clear_audio_path: str = "clear_audio/",
-        batch_size: int = 128,
-        device: str = "cpu",
+        cfg_path: str,
     ):
         """
         Initializes the SnoreInference class
-        object with the provided parameters.
+        object with the provided config.
 
         Args:
-            ckpt_path (str): The path to the
-            checkpoint file of the trained model.
-            sample_rate (int): The sample rate of the audio.
-            chunk_size (int): The size of each audio chunk for processing.
-            mean_overlaps (bool): Flag indicating whether
-            to calculate mean overlaps.
-            threshold (int): The threshold value for labeling.
-            stride (int): The stride value for segmenting the audio.
-            generate_clear_audio (str, optional): The path to generate
-            clear audio. Default is None.
-            include_probs (bool, optional): Flag indicating whether to
-            include probabilities in the labels. Default is False.
-            label_path (str, optional): The path to save the output labels.
-            Default is "output/".
-            clear_audio_path (str, optional): The path to save the
-            generated clear audio. Default is "clear_audio/".
-            batch_size (int, optional): The batch size for inference.
-            Default is 128.
-            device (str, optional): The device to use for inference.
-            Default is "cpu".
+            cfg_path (str): Path to inference config.
 
         Returns:
             None. The method initializes the class object.
         """
-        self.sample_rate = sample_rate
-        self.chunk_size = chunk_size
-        self.mean_overlaps = mean_overlaps
-        self.threshold = threshold
-        self.stride = stride
-        self.generate_clear_audio = generate_clear_audio
-        self.include_probs = include_probs
-        self.ckpt_path = ckpt_path
-        self.label_path = label_path
-        self.clear_audio_path = clear_audio_path
-        self.batch_size = batch_size
-        self.device = device
+        with open(cfg_path, encoding="utf-8") as c:
+            config = yaml.load(c, Loader=yaml.FullLoader)
 
-        self.model = torch.jit.load(self.ckpt_path)
-        self.model.to(self.device)
+        self.cfg = munchify(config)
+        self.model = torch.jit.load(self.cfg.ckpt_path)
 
     def cut_empty_audio(self, audio_path, output_path, predicted_VA):
         """
@@ -88,7 +51,7 @@ class SnoreInference:
             and saves it to the specified output path.
         """
         original_audio = AudioSegment.from_file(audio_path, format="wav")
-        original_audio = original_audio.set_frame_rate(self.sample_rate)
+        original_audio = original_audio.set_frame_rate(self.cfg.sample_rate)
 
         clean_audio = AudioSegment.empty()
         stride_segments = defaultdict(list)
@@ -97,14 +60,16 @@ class SnoreInference:
 
         [
             [
-                stride_segments[(stride_segment - self.stride), stride_segment].append(
-                    predicted_VA[p]
-                )
+                stride_segments[
+                    (stride_segment - self.cfg.stride), stride_segment
+                ].append(predicted_VA[p])
                 for p in predicted_VA.keys()
                 if p[0] < stride_segment <= p[-1]
             ]
             for stride_segment in range(
-                self.stride, (1 + len(predicted_VA)) * self.stride, self.stride
+                self.cfg.stride,
+                (1 + len(predicted_VA)) * self.cfg.stride,
+                self.cfg.stride,
             )
         ]
         stride_segments = {
@@ -120,7 +85,7 @@ class SnoreInference:
         print("Audio has been successfully generated")
 
     def labeling_func(self, x):
-        return 1 if x[-1] > self.threshold else 0
+        return 1 if x[-1] > self.cfg.threshold else 0
 
     def predict(self, audio: str, output_file_name: str = None):
         """
@@ -137,32 +102,24 @@ class SnoreInference:
         Returns:
             None
         """
-        os.makedirs(self.label_path, exist_ok=True)
+        os.makedirs(self.cfg.label_path, exist_ok=True)
         audio_name = os.path.splitext(os.path.basename(audio))[0]
         output_file_name = os.path.join(
-            self.label_path,
-            f"{audio_name}_output_{self.stride}_stride_{self.threshold}_thr.json"
+            self.cfg.label_path,
+            f"{audio_name}_output_{self.cfg.stride}_stride_{self.cfg.threshold}_thr.json"
             if not output_file_name
             else output_file_name,
         )
 
-        print(
-            f"Processing {audio} with following config:\n \
-                    output_path = {output_file_name}\n \
-                    stride = {self.stride}\n \
-                    threshold = {self.threshold}\n \
-                    mean_overlap = {self.mean_overlaps}\n \
-                    mel_size = {self.chunk_size}\n \
-                    batch_size = {self.batch_size}"
-        )
+        print(f"Processing {audio} with following config:\n{self.cfg}")
 
         labels = {}
         audio_dataset, segm_cnt = dataset_from_audio(
             audio,
-            self.sample_rate,
-            self.chunk_size,
-            stride=self.stride,
-            batch_size=self.batch_size,
+            self.cfg.sample_rate,
+            self.cfg.chunk_size,
+            stride=self.cfg.stride,
+            batch_size=self.cfg.batch_size,
         )
         print(f"{segm_cnt} segments were successfully extracted from audio")
 
@@ -172,12 +129,12 @@ class SnoreInference:
             print(f"Processing batch {batch + 1} from {len(audio_dataset)}...")
 
             with torch.no_grad():
-                output = torch.softmax(self.model(x_batch_val.to(self.device)), dim=-1)
+                output = torch.softmax(self.model(x_batch_val), dim=-1)
             labels.update(
                 {
                     (
-                        k * self.stride,
-                        k * self.stride + self.chunk_size,
+                        k * self.cfg.stride,
+                        k * self.cfg.stride + self.cfg.chunk_size,
                     ): v
                     for k, v in zip(
                         y.cpu().numpy().tolist(), output.cpu().numpy().tolist()
@@ -187,24 +144,27 @@ class SnoreInference:
         torch.cuda.empty_cache()
         print(f"Inference completed. Total time = {time.time() - t} seconds")
 
-        if self.mean_overlaps:
+        if self.cfg.mean_overlaps:
             mean_segments = [
                 [labels[p] for p in labels.keys() if p[0] < stride_segment <= p[-1]]
                 for stride_segment in range(
-                    self.stride, (1 + len(labels)) * self.stride, self.stride
+                    self.cfg.stride,
+                    (1 + len(labels)) * self.cfg.stride,
+                    self.cfg.stride,
                 )
             ]
             mean_segments = [
-                np.mean(np.array(segm).transpose(), axis=-1) for segm in mean_segments
+                np.mean(np.array(segm).transpose(), axis=-1).tolist()
+                for segm in mean_segments
             ]
 
         labels = {
             k: [v, self.labeling_func(v)]
-            if self.include_probs
+            if self.cfg.include_probs
             else self.labeling_func(v)
             for k, v in (
                 labels.items()
-                if not self.mean_overlaps
+                if not self.cfg.mean_overlaps
                 else zip(labels.keys(), mean_segments)
             )
         }
@@ -212,16 +172,16 @@ class SnoreInference:
         with open(output_file_name, "w+") as f:
             json.dump({str(k): v for k, v in labels.items()}, f, indent=4)
 
-        if self.generate_clear_audio:
-            os.makedirs(self.clear_audio_path, exist_ok=True)
+        if self.cfg.generate_clear_audio:
+            os.makedirs(self.cfg.clear_audio_path, exist_ok=True)
             self.cut_empty_audio(
                 audio,
                 os.path.join(
-                    self.clear_audio_path,
-                    f"clear_{audio_name}_{self.generate_clear_audio}",
+                    self.cfg.clear_audio_path,
+                    f"clear_{audio_name}_{self.cfg.generate_clear_audio}",
                 ),
                 labels
-                if not self.include_probs
+                if not self.cfg.include_probs
                 else {k: v[-1] for k, v in labels.items()},
             )
 
@@ -229,16 +189,20 @@ class SnoreInference:
 
 
 if __name__ == "__main__":
-    vad = SnoreInference(
-        ckpt_path="model_weights/weights.pt",
-        sample_rate=16000,
-        chunk_size=1000,
-        mean_overlaps=False,
-        generate_clear_audio="jit_model",
-        include_probs=True,
-        threshold=0.25,
-        stride=1000,
-        device="cuda",
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        "-c", "--config-path", type=str, help="Path to conf file", required=True
+    )
+    parser.add_argument(
+        "-a",
+        "--audio-path",
+        type=str,
+        help="Path to audio file to be labeled",
+        required=True,
     )
 
-    vad.predict("test_mic_audios/230810_0002_conv.wav")
+    args = parser.parse_args()
+
+    inf = SnoreInference(args.config_path)
+    inf.predict(args.audio_path)
