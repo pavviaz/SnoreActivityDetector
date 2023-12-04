@@ -1,16 +1,16 @@
-from queue import Queue
 import argparse
-from datetime import datetime
+from datetime import datetime, timedelta, time as date_time
 import os
+import time
+from collections import defaultdict
+import wave
 
 import torch
 import pyaudio
 import numpy as np
 import yaml
 from munch import munchify
-
-
-LOG_NAME = "log.txt"
+import pandas as pd
 
 
 class StreamPrediction:
@@ -19,20 +19,12 @@ class StreamPrediction:
             config = yaml.load(c, Loader=yaml.FullLoader)
 
         self.cfg = munchify(config)
+        self.chunk_samples = int(self.cfg.sample_rate * self.cfg.chunk_size / 1000)
         self.model = torch.jit.load(self.cfg.ckpt_path)
 
-        self.chunk_samples = int(self.cfg.sample_rate * 500 / 1000)
-        self.window_samples = int(self.cfg.sample_rate * 1000 / 1000)
-        self.silence_threshold = 100
-
-        self.queue = Queue()
-        self.data = np.zeros(self.window_samples, dtype="float32")
+        self.logger = defaultdict(list)
 
     def start_stream(self):
-        """
-        Start audio data streaming from microphone
-        :return: None
-        """
         p = pyaudio.PyAudio()
 
         stream = p.open(
@@ -41,24 +33,51 @@ class StreamPrediction:
             rate=self.cfg.sample_rate,
             input=True,
             frames_per_buffer=self.chunk_samples,
-            stream_callback=self.callback,
+        )
+
+        os.makedirs(self.cfg.recorded_audio_path, exist_ok=True)
+        os.makedirs(self.cfg.label_path, exist_ok=True)
+
+        record_time = datetime.combine(datetime.now(), date_time.min)
+
+        curr_time = datetime.now().strftime("%d_%m_%Y_%H_%M_%S")
+        record_wav = wave.open(
+            os.path.join(self.cfg.recorded_audio_path, f"mic_record_{curr_time}.wav"),
+            "w",
+        )
+        record_wav.setnchannels(1)
+        record_wav.setsampwidth(2)
+        record_wav.setframerate(self.cfg.sample_rate)
+
+        label_file_name = os.path.join(
+            self.cfg.label_path,
+            f"mic_label_{curr_time}.xlsx",
         )
 
         stream.start_stream()
 
         try:
             while True:
-                data = self.queue.get()
+                data = np.frombuffer(stream.read(self.chunk_samples), dtype="float32")
                 data = np.expand_dims(data, 0)
                 data = np.expand_dims(data, 0)
 
                 with torch.no_grad():
                     pred = self.model(torch.tensor(data))
 
-                log_str = f"{datetime.now().strftime('%H:%M:%S:%f')} | {torch.softmax(pred, -1)};"
+                record_wav.writeframes(
+                    (np.squeeze(data, axis=0) * (2**15 - 1)).astype("<h")
+                )
+                record_time += timedelta(seconds=1)
 
-                with open(os.path.join(self.cfg.label_path, LOG_NAME), "a+") as f:
-                    f.write(log_str + "\n")
+                self.logger["Real Time"].append(str(datetime.now()))
+                self.logger["Audio Time"].append(str(record_time))
+                [
+                    self.logger[f"Class {idx}"].append(el.item())
+                    for idx, el in enumerate(torch.softmax(pred.squeeze(), -1))
+                ]
+
+                log_str = f"{datetime.now().strftime('%H:%M:%S:%f')} | {torch.softmax(pred, -1)};"
 
                 print(
                     log_str,
@@ -67,32 +86,16 @@ class StreamPrediction:
                     flush=True,
                 )
 
+                time.sleep(self.cfg.chunk_size / 1000)
+
         except (KeyboardInterrupt, SystemExit):
             stream.stop_stream()
             stream.close()
 
-    def callback(self, in_data, frame_count, time_info, status):
-        """
-        Obtain the data from buffer and load it to queue
-        :param in_data: Daa buffer
-        :param frame_count: Frame count
-        :param time_info: Time information
-        :param status: Status
-        """
-        data0 = np.frombuffer(in_data, dtype="float32")
+            d = pd.DataFrame(self.logger)
+            d.to_excel(label_file_name, index=False)
 
-        if np.abs(data0).mean() < self.silence_threshold:
-            print(".", sep="", end="", flush=True)
-        else:
-            print("-", sep="", end="", flush=True)
-
-        self.data = np.append(self.data, data0)
-
-        if len(self.data) > self.window_samples:
-            self.data = self.data[-self.window_samples :]
-            self.queue.put(self.data)
-
-        return in_data, pyaudio.paContinue
+            record_wav.close()
 
 
 if __name__ == "__main__":
